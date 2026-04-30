@@ -1,6 +1,153 @@
 use super::*;
 use settings_page::MatchData;
 
+#[test]
+fn settings_sidebar_nav_items_are_terminal_focused() {
+    let nav_items = settings_sidebar_nav_items();
+    let page_sections: Vec<_> = nav_items
+        .into_iter()
+        .map(|item| match item {
+            SettingsNavItem::Page(section) => section,
+            SettingsNavItem::Umbrella(_) => panic!("terminal-focused nav should not use umbrellas"),
+        })
+        .collect();
+
+    assert_eq!(
+        page_sections,
+        vec![
+            SettingsSection::Appearance,
+            SettingsSection::Features,
+            SettingsSection::Keybindings,
+        ]
+    );
+
+    for hidden_section in [
+        SettingsSection::About,
+        SettingsSection::Account,
+        SettingsSection::AI,
+        SettingsSection::MCPServers,
+        SettingsSection::BillingAndUsage,
+        SettingsSection::Code,
+        SettingsSection::CloudEnvironments,
+        SettingsSection::OzCloudAPIKeys,
+        SettingsSection::Referrals,
+        SettingsSection::SharedBlocks,
+        SettingsSection::Teams,
+        SettingsSection::WarpDrive,
+        SettingsSection::Warpify,
+        SettingsSection::Privacy,
+        SettingsSection::WarpAgent,
+        SettingsSection::AgentProfiles,
+        SettingsSection::AgentMCPServers,
+        SettingsSection::Knowledge,
+        SettingsSection::ThirdPartyCLIAgents,
+        SettingsSection::CodeIndexing,
+        SettingsSection::EditorAndCodeReview,
+    ] {
+        assert!(
+            !page_sections.contains(&hidden_section),
+            "{hidden_section:?} should not be visible in the terminal-focused settings nav"
+        );
+    }
+}
+
+#[test]
+fn settings_default_page_is_appearance_without_changing_section_default() {
+    assert_eq!(default_settings_section(), SettingsSection::Appearance);
+    assert_eq!(SettingsSection::default(), SettingsSection::Account);
+}
+
+#[test]
+fn sidebar_nav_entry_lookup_excludes_hidden_backing_pages() {
+    let nav_items = settings_sidebar_nav_items();
+
+    assert!(settings_page_has_sidebar_nav_entry(
+        &nav_items,
+        SettingsSection::Appearance
+    ));
+    assert!(settings_page_has_sidebar_nav_entry(
+        &nav_items,
+        SettingsSection::Features
+    ));
+    assert!(settings_page_has_sidebar_nav_entry(
+        &nav_items,
+        SettingsSection::Keybindings
+    ));
+
+    for hidden_section in [
+        SettingsSection::About,
+        SettingsSection::Account,
+        SettingsSection::AI,
+        SettingsSection::MCPServers,
+        SettingsSection::BillingAndUsage,
+        SettingsSection::Code,
+        SettingsSection::CloudEnvironments,
+        SettingsSection::OzCloudAPIKeys,
+        SettingsSection::Referrals,
+        SettingsSection::SharedBlocks,
+        SettingsSection::Teams,
+        SettingsSection::WarpDrive,
+        SettingsSection::Warpify,
+        SettingsSection::Privacy,
+        SettingsSection::WarpAgent,
+        SettingsSection::AgentProfiles,
+        SettingsSection::AgentMCPServers,
+        SettingsSection::Knowledge,
+        SettingsSection::ThirdPartyCLIAgents,
+        SettingsSection::CodeIndexing,
+        SettingsSection::EditorAndCodeReview,
+    ] {
+        assert!(
+            !settings_page_has_sidebar_nav_entry(&nav_items, hidden_section),
+            "{hidden_section:?} should not count as visible in sidebar search results"
+        );
+    }
+}
+
+#[test]
+fn restored_hidden_settings_sections_normalize_to_appearance() {
+    for visible_section in [
+        SettingsSection::Appearance,
+        SettingsSection::Features,
+        SettingsSection::Keybindings,
+    ] {
+        assert_eq!(
+            normalize_restored_settings_section(visible_section),
+            visible_section
+        );
+    }
+
+    for hidden_section in [
+        SettingsSection::About,
+        SettingsSection::Account,
+        SettingsSection::AI,
+        SettingsSection::MCPServers,
+        SettingsSection::BillingAndUsage,
+        SettingsSection::Code,
+        SettingsSection::CloudEnvironments,
+        SettingsSection::OzCloudAPIKeys,
+        SettingsSection::Referrals,
+        SettingsSection::SharedBlocks,
+        SettingsSection::Teams,
+        SettingsSection::WarpDrive,
+        SettingsSection::Warpify,
+        SettingsSection::Privacy,
+        SettingsSection::WarpAgent,
+        SettingsSection::AgentProfiles,
+        SettingsSection::AgentMCPServers,
+        SettingsSection::Knowledge,
+        SettingsSection::ThirdPartyCLIAgents,
+        SettingsSection::CodeIndexing,
+        SettingsSection::EditorAndCodeReview,
+    ] {
+        assert_eq!(
+            normalize_restored_settings_section(hidden_section),
+            SettingsSection::Appearance,
+            "{hidden_section:?} should restore to the terminal-focused default"
+        );
+    }
+}
+
 // ── SettingsSection classification ──────────────────────────────────────────
 
 #[test]

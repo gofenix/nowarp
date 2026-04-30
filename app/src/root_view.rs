@@ -1693,6 +1693,53 @@ enum AuthOnboardingState {
     Terminal(ViewHandle<Workspace>),
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum UnauthenticatedStartupTarget {
+    Auth,
+    Onboarding,
+    Terminal,
+}
+
+fn unauthenticated_startup_target(
+    has_completed_local_onboarding: bool,
+) -> UnauthenticatedStartupTarget {
+    if FeatureFlag::ForceLogin.is_enabled() {
+        return UnauthenticatedStartupTarget::Auth;
+    }
+
+    if crate::onboarding_suppression::suppress_automatic_onboarding() {
+        return UnauthenticatedStartupTarget::Terminal;
+    }
+
+    if FeatureFlag::OpenWarpNewSettingsModes.is_enabled()
+        && FeatureFlag::AgentOnboarding.is_enabled()
+        && !has_completed_local_onboarding
+    {
+        return UnauthenticatedStartupTarget::Onboarding;
+    }
+
+    UnauthenticatedStartupTarget::Terminal
+}
+
+fn should_complete_post_auth_onboarding_without_showing(
+    is_onboarded: bool,
+    is_anonymous: bool,
+) -> bool {
+    crate::onboarding_suppression::suppress_automatic_onboarding() && !is_onboarded && !is_anonymous
+}
+
+fn should_open_post_auth_onboarding(
+    is_onboarded: bool,
+    is_anonymous: bool,
+    has_completed_local_onboarding: bool,
+) -> bool {
+    !crate::onboarding_suppression::suppress_automatic_onboarding()
+        && !is_onboarded
+        && !is_anonymous
+        && !has_completed_local_onboarding
+        && FeatureFlag::AgentOnboarding.is_enabled()
+}
+
 pub struct RootView {
     auth_onboarding_state: AuthOnboardingState,
     server_time: Option<Arc<ServerTime>>,
@@ -1756,38 +1803,16 @@ impl RootView {
         let auth_onboarding_state = if auth_state.is_logged_in() {
             AuthOnboardingState::Terminal(workspace_args.create_workspace(ctx))
         } else {
-            cfg_if! {
-                if #[cfg(target_family = "wasm")] {
-                    AuthOnboardingState::WebImport(AuthOnboardingTarget::Workspace(workspace_args.into()))
-                } else {
-                    // When OpenWarpNewSettingsModes is enabled, show onboarding before login for
-                    // users who haven't completed it yet (tracked via a local UserPreferences key).
-                    let has_completed_local_onboarding = FeatureFlag::OpenWarpNewSettingsModes.is_enabled()
-                        && has_completed_local_onboarding(ctx);
-                    let should_show_pre_login_onboarding = FeatureFlag::OpenWarpNewSettingsModes.is_enabled()
-                        && FeatureFlag::AgentOnboarding.is_enabled()
-                        && !has_completed_local_onboarding;
-                    if FeatureFlag::ForceLogin.is_enabled() {
-                        // ForceLogin is true for Preview
-                        AuthOnboardingState::Auth(workspace_args.into())
-                    } else if should_show_pre_login_onboarding {
-                        let workspace_args_box: Box<WorkspaceArgs> = workspace_args.into();
-                        let onboarding_view = Self::create_agent_onboarding_view(ctx);
-                        onboarding_view.update(ctx, |view, ctx| {
-                            view.start_onboarding(ctx);
-                        });
-                        AuthOnboardingState::Onboarding {
-                            onboarding_view,
-                            target: AuthOnboardingTarget::Workspace(workspace_args_box),
-                        }
-                    } else if FeatureFlag::SkipFirebaseAnonymousUser.is_enabled() {
-                        // When SkipFirebaseAnonymousUser is enabled, skip the login screen
-                        // entirely and go directly into the workspace.
-                        AuthOnboardingState::Terminal(workspace_args.create_workspace(ctx))
-                    } else {
-                        AuthOnboardingState::Auth(workspace_args.into())
-                    }
-                }
+            #[cfg(target_family = "wasm")]
+            {
+                AuthOnboardingState::WebImport(AuthOnboardingTarget::Workspace(
+                    workspace_args.into(),
+                ))
+            }
+
+            #[cfg(not(target_family = "wasm"))]
+            {
+                Self::create_unauthenticated_auth_onboarding_state(workspace_args, ctx)
             }
         };
 
@@ -1881,6 +1906,35 @@ impl RootView {
         }
 
         root_view
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    fn create_unauthenticated_auth_onboarding_state(
+        workspace_args: WorkspaceArgs,
+        ctx: &mut ViewContext<Self>,
+    ) -> AuthOnboardingState {
+        // When OpenWarpNewSettingsModes is enabled, show onboarding before login for
+        // users who haven't completed it yet (tracked via a local UserPreferences key).
+        let has_completed_local_onboarding = FeatureFlag::OpenWarpNewSettingsModes.is_enabled()
+            && has_completed_local_onboarding(ctx);
+
+        match unauthenticated_startup_target(has_completed_local_onboarding) {
+            UnauthenticatedStartupTarget::Auth => AuthOnboardingState::Auth(workspace_args.into()),
+            UnauthenticatedStartupTarget::Onboarding => {
+                let workspace_args_box: Box<WorkspaceArgs> = workspace_args.into();
+                let onboarding_view = Self::create_agent_onboarding_view(ctx);
+                onboarding_view.update(ctx, |view, ctx| {
+                    view.start_onboarding(ctx);
+                });
+                AuthOnboardingState::Onboarding {
+                    onboarding_view,
+                    target: AuthOnboardingTarget::Workspace(workspace_args_box),
+                }
+            }
+            UnauthenticatedStartupTarget::Terminal => {
+                AuthOnboardingState::Terminal(workspace_args.create_workspace(ctx))
+            }
+        }
     }
 
     /// Used for integration tests.
@@ -3294,6 +3348,11 @@ impl RootView {
     /// If onboarding stored a pending tutorial (because login was required first),
     /// start it now that the workspace exists.
     fn start_pending_tutorial(&mut self, ctx: &mut ViewContext<Self>) {
+        if crate::onboarding_suppression::suppress_automatic_onboarding() {
+            self.pending_tutorial = None;
+            return;
+        }
+
         let Some(tutorial) = self.pending_tutorial.take() else {
             return;
         };
@@ -3504,17 +3563,26 @@ impl AuthOnboardingState {
         // The server-side `is_onboarded` flag is synced separately by
         // `RootView::sync_local_onboarding_to_server`, which runs on every `AuthComplete`
         // before we get here.
-        let auth_state = AuthStateProvider::as_ref(ctx).get();
-        let is_onboarded = auth_state.is_onboarded().unwrap_or(true);
-        let is_anonymous = auth_state.is_user_anonymous().unwrap_or(false);
+        let (is_onboarded, is_anonymous) = {
+            let auth_state = AuthStateProvider::as_ref(ctx).get();
+            (
+                auth_state.is_onboarded().unwrap_or(true),
+                auth_state.is_user_anonymous().unwrap_or(false),
+            )
+        };
 
         let has_completed_local_onboarding = has_completed_local_onboarding(ctx);
 
-        if !is_onboarded
-            && !is_anonymous
-            && !has_completed_local_onboarding
-            && FeatureFlag::AgentOnboarding.is_enabled()
-        {
+        if should_complete_post_auth_onboarding_without_showing(is_onboarded, is_anonymous) {
+            mark_local_onboarding_completed(ctx);
+            AuthManager::handle(ctx).update(ctx, |model, ctx| {
+                model.set_user_onboarded(ctx);
+            });
+        } else if should_open_post_auth_onboarding(
+            is_onboarded,
+            is_anonymous,
+            has_completed_local_onboarding,
+        ) {
             self.try_open_onboarding_slides(ctx);
         }
 

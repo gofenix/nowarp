@@ -94,6 +94,10 @@ impl EditorView {
     }
 
     pub(super) fn should_show_voice_new_feature_popup(&self, app: &AppContext) -> bool {
+        if crate::onboarding_suppression::suppress_automatic_new_feature_prompts() {
+            return false;
+        }
+
         let ai_settings = AISettings::handle(app).as_ref(app);
         let voice_input = voice_input::VoiceInput::handle(app).as_ref(app);
 

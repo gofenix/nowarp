@@ -100,7 +100,7 @@ use crate::server::experiments::ServerExperiment;
 use crate::server::ids::{ClientId, HashableId, ServerId, SyncId, ToServerId};
 use crate::server::telemetry::TelemetryEvent;
 use crate::settings::cloud_preferences::{CloudPreference, CloudPreferenceModel};
-use crate::settings_view::SettingsSection;
+use crate::settings_view::{normalize_restored_settings_section, SettingsSection};
 use crate::suggestions::ignored_suggestions_model::SuggestionType;
 use crate::tab::SelectedTabColor;
 use crate::terminal::history::PersistedCommand;
@@ -2530,6 +2530,7 @@ fn read_node(conn: &mut SqliteConnection, node: model::PaneNode) -> Result<PaneN
                     let current_page = SettingsSection::from_str(&settings_pane.current_page)
                         .ok()
                         .unwrap_or_default();
+                    let current_page = normalize_restored_settings_section(current_page);
                     LeafContents::Settings(SettingsPaneSnapshot::Local {
                         current_page,
                         search_query: None,

@@ -77,7 +77,7 @@ impl AuthState {
     /// 1. Test user (test/integration/skip_login builds)
     /// 2. Provided API key
     /// 3. WARP_USER_SECRET environment variable
-    /// 4. Persisted user from secure storage
+    /// 4. Persisted user from secure storage (non-OSS channels only)
     #[cfg_attr(target_family = "wasm", allow(dead_code))]
     pub fn initialize(ctx: &AppContext, api_key: Option<String>) -> Self {
         let state = Self::new(ctx);
@@ -111,6 +111,11 @@ impl AuthState {
             return state;
         }
 
+        if !Self::should_restore_persisted_user_from_secure_storage(ChannelState::channel()) {
+            log::info!("Skipping persisted user restore for OSS channel");
+            return state;
+        }
+
         // Try reading from secure storage.
         match PersistedUser::from_secure_storage(ctx) {
             Ok(persisted) => {
@@ -135,6 +140,10 @@ impl AuthState {
 
     fn should_use_test_user() -> bool {
         cfg!(any(test, feature = "skip_login")) || ChannelState::channel() == Channel::Integration
+    }
+
+    fn should_restore_persisted_user_from_secure_storage(channel: Channel) -> bool {
+        channel != Channel::Oss
     }
 
     /// Determines the appropriate persistence action based on the current auth state.
@@ -516,3 +525,21 @@ impl Entity for AuthStateProvider {
 }
 
 impl SingletonEntity for AuthStateProvider {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_oss_channel_does_not_restore_persisted_user_by_default() {
+        assert!(!AuthState::should_restore_persisted_user_from_secure_storage(Channel::Oss));
+    }
+
+    #[test]
+    fn test_first_party_channels_restore_persisted_user() {
+        assert!(AuthState::should_restore_persisted_user_from_secure_storage(Channel::Stable));
+        assert!(AuthState::should_restore_persisted_user_from_secure_storage(Channel::Preview));
+        assert!(AuthState::should_restore_persisted_user_from_secure_storage(Channel::Dev));
+        assert!(AuthState::should_restore_persisted_user_from_secure_storage(Channel::Local));
+    }
+}

@@ -36,7 +36,7 @@ use itertools::Itertools as _;
 use keybindings::KeybindingsView;
 use main_page::{MainPageAction, MainSettingsPageEvent, MainSettingsPageView};
 use mcp_servers_page::MCPServersSettingsPageView;
-use nav::{SettingsNavItem, SettingsUmbrella};
+use nav::SettingsNavItem;
 use pathfinder_geometry::vector::Vector2F;
 use privacy_page::{PrivacyPageView, PrivacyPageViewEvent};
 use referrals_page::{ReferralsPageEvent, ReferralsPageView};
@@ -312,6 +312,40 @@ impl SettingsSection {
     /// The ordered list of Cloud platform subpage sections.
     pub fn cloud_platform_subpages() -> &'static [Self] {
         &[Self::CloudEnvironments, Self::OzCloudAPIKeys]
+    }
+}
+
+pub(crate) fn default_settings_section() -> SettingsSection {
+    SettingsSection::Appearance
+}
+
+fn settings_sidebar_nav_items() -> Vec<SettingsNavItem> {
+    vec![
+        SettingsNavItem::Page(SettingsSection::Appearance),
+        SettingsNavItem::Page(SettingsSection::Features),
+        SettingsNavItem::Page(SettingsSection::Keybindings),
+    ]
+}
+
+fn settings_page_has_sidebar_nav_entry(
+    nav_items: &[SettingsNavItem],
+    page_section: SettingsSection,
+) -> bool {
+    nav_items.iter().any(|item| match item {
+        SettingsNavItem::Page(section) => *section == page_section,
+        SettingsNavItem::Umbrella(umbrella) => umbrella
+            .subpages
+            .iter()
+            .any(|section| section.parent_page_section() == page_section),
+    })
+}
+
+pub(crate) fn normalize_restored_settings_section(section: SettingsSection) -> SettingsSection {
+    let nav_items = settings_sidebar_nav_items();
+    if settings_page_has_sidebar_nav_entry(&nav_items, section) {
+        section
+    } else {
+        default_settings_section()
     }
 }
 
@@ -1180,47 +1214,14 @@ impl SettingsView {
             SettingsPage::new(about_page_handle),
         ]);
 
-        // Build sidebar nav items. AI page is presented as an "Agents" umbrella
-        // with subpages; the actual AI SettingsPage is hidden from direct sidebar listing.
-        let mut nav_items = vec![
-            SettingsNavItem::Page(SettingsSection::Account),
-            SettingsNavItem::Umbrella(SettingsUmbrella::new(
-                "Agents",
-                SettingsSection::ai_subpages().to_vec(),
-            )),
-            SettingsNavItem::Page(SettingsSection::BillingAndUsage),
-            SettingsNavItem::Umbrella(SettingsUmbrella::new(
-                "Code",
-                vec![
-                    SettingsSection::CodeIndexing,
-                    SettingsSection::EditorAndCodeReview,
-                ],
-            )),
-            SettingsNavItem::Umbrella(SettingsUmbrella::new(
-                "Cloud platform",
-                vec![
-                    SettingsSection::CloudEnvironments,
-                    SettingsSection::OzCloudAPIKeys,
-                ],
-            )),
-            SettingsNavItem::Page(SettingsSection::Teams),
-            SettingsNavItem::Page(SettingsSection::Appearance),
-            SettingsNavItem::Page(SettingsSection::Features),
-            SettingsNavItem::Page(SettingsSection::Keybindings),
-            SettingsNavItem::Page(SettingsSection::Warpify),
-            SettingsNavItem::Page(SettingsSection::Referrals),
-            SettingsNavItem::Page(SettingsSection::SharedBlocks),
-            SettingsNavItem::Page(SettingsSection::WarpDrive),
-            SettingsNavItem::Page(SettingsSection::Privacy),
-            SettingsNavItem::Page(SettingsSection::About),
-        ];
+        let mut nav_items = settings_sidebar_nav_items();
 
         // Resolve the initial page: map internal backing-page sections to their default subpage.
         let initial_page = match page {
             Some(SettingsSection::AI) => SettingsSection::WarpAgent,
             Some(SettingsSection::Code) => SettingsSection::CodeIndexing,
             Some(section) if section.is_subpage() => section,
-            other => other.unwrap_or_default(),
+            other => other.unwrap_or_else(default_settings_section),
         };
 
         // Auto-expand the umbrella if the initial page is one of its subpages.
@@ -1291,12 +1292,17 @@ impl SettingsView {
         &'a self,
         app: &'a AppContext,
     ) -> impl Iterator<Item = (&'a SettingsPage, MatchData)> {
+        let is_search_active = !self.search_editor.as_ref(app).buffer_text(app).is_empty();
         self.settings_pages
             .iter()
             .zip(self.pages_filter.iter())
             .filter_map(move |(page, match_data)| {
-                (self.should_render_page(page, app) && match_data.is_truthy())
-                    .then_some((page, *match_data))
+                let is_visible_search_result = !is_search_active
+                    || settings_page_has_sidebar_nav_entry(&self.nav_items, page.section);
+                (is_visible_search_result
+                    && self.should_render_page(page, app)
+                    && match_data.is_truthy())
+                .then_some((page, *match_data))
             })
     }
 

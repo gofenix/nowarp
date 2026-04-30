@@ -51,6 +51,7 @@ mod modal;
 mod network;
 mod notebooks;
 mod notification;
+mod onboarding_suppression;
 mod palette;
 mod persistence;
 mod platform;

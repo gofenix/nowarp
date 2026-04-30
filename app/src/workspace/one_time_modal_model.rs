@@ -219,6 +219,12 @@ impl OneTimeModalModel {
     }
 
     fn check_and_trigger_hoa_onboarding(&mut self, ctx: &mut ModelContext<Self>) -> bool {
+        if crate::onboarding_suppression::suppress_automatic_onboarding() {
+            hoa_onboarding::mark_hoa_onboarding_completed(ctx);
+            self.set_hoa_onboarding_open(false, ctx);
+            return false;
+        }
+
         if !FeatureFlag::HOAOnboardingFlow.is_enabled() {
             return false;
         }
@@ -239,6 +245,19 @@ impl OneTimeModalModel {
     }
 
     fn check_and_trigger_oz_launch_modal(&mut self, ctx: &mut ModelContext<Self>) -> bool {
+        if crate::onboarding_suppression::suppress_automatic_launch_modals() {
+            AISettings::handle(ctx).update(ctx, |settings, ctx| {
+                if let Err(e) = settings
+                    .did_check_to_trigger_oz_launch_modal
+                    .set_value(true, ctx)
+                {
+                    log::warn!("Failed to mark Oz launch modal as dismissed: {e}");
+                }
+            });
+            self.set_oz_launch_modal_open(false, ctx);
+            return false;
+        }
+
         // Only show if the feature flag is enabled.
         if !FeatureFlag::OzLaunchModal.is_enabled() {
             return false;
@@ -267,6 +286,19 @@ impl OneTimeModalModel {
     }
 
     fn check_and_trigger_openwarp_launch_modal(&mut self, ctx: &mut ModelContext<Self>) -> bool {
+        if crate::onboarding_suppression::suppress_automatic_launch_modals() {
+            GeneralSettings::handle(ctx).update(ctx, |settings, ctx| {
+                if let Err(e) = settings
+                    .did_check_to_trigger_openwarp_launch_modal
+                    .set_value(true, ctx)
+                {
+                    log::warn!("Failed to mark OpenWarp launch modal as dismissed: {e}");
+                }
+            });
+            self.set_openwarp_launch_modal_open(false, ctx);
+            return false;
+        }
+
         // Only show if the feature flag is enabled.
         if !FeatureFlag::OpenWarpLaunchModal.is_enabled() {
             return false;
@@ -384,3 +416,86 @@ impl Entity for OneTimeModalModel {
 }
 
 impl SingletonEntity for OneTimeModalModel {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_util::settings::initialize_settings_for_tests;
+    use crate::workspace::hoa_onboarding;
+    use warpui::App;
+
+    fn model_for_test() -> OneTimeModalModel {
+        OneTimeModalModel {
+            is_build_plan_migration_modal_open: false,
+            is_oz_launch_modal_open: false,
+            is_openwarp_launch_modal_open: false,
+            is_hoa_onboarding_open: false,
+            target_window_id: None,
+        }
+    }
+
+    #[test]
+    fn test_openwarp_launch_modal_is_marked_checked_without_opening() {
+        let _openwarp_launch_modal = FeatureFlag::OpenWarpLaunchModal.override_enabled(true);
+
+        App::test((), |mut app| async move {
+            initialize_settings_for_tests(&mut app);
+            let model = app.add_model(|_| model_for_test());
+
+            let did_open = model.update(&mut app, |model, ctx| {
+                model.check_and_trigger_openwarp_launch_modal(ctx)
+            });
+
+            app.read(|ctx| {
+                assert!(!did_open);
+                assert!(!model.as_ref(ctx).is_openwarp_launch_modal_open());
+                assert!(*GeneralSettings::as_ref(ctx)
+                    .did_check_to_trigger_openwarp_launch_modal
+                    .value());
+            });
+        });
+    }
+
+    #[test]
+    fn test_oz_launch_modal_is_marked_checked_without_opening() {
+        let _oz_launch_modal = FeatureFlag::OzLaunchModal.override_enabled(true);
+
+        App::test((), |mut app| async move {
+            initialize_settings_for_tests(&mut app);
+            let model = app.add_model(|_| model_for_test());
+
+            let did_open = model.update(&mut app, |model, ctx| {
+                model.check_and_trigger_oz_launch_modal(ctx)
+            });
+
+            app.read(|ctx| {
+                assert!(!did_open);
+                assert!(!model.as_ref(ctx).is_oz_launch_modal_open());
+                assert!(*AISettings::as_ref(ctx).did_check_to_trigger_oz_launch_modal);
+            });
+        });
+    }
+
+    #[test]
+    fn test_hoa_onboarding_is_marked_completed_without_opening() {
+        let _hoa_onboarding = FeatureFlag::HOAOnboardingFlow.override_enabled(true);
+        let _vertical_tabs = FeatureFlag::VerticalTabs.override_enabled(true);
+        let _hoa_notifications = FeatureFlag::HOANotifications.override_enabled(true);
+        let _tab_configs = FeatureFlag::TabConfigs.override_enabled(true);
+
+        App::test((), |mut app| async move {
+            initialize_settings_for_tests(&mut app);
+            let model = app.add_model(|_| model_for_test());
+
+            let did_open = model.update(&mut app, |model, ctx| {
+                model.check_and_trigger_hoa_onboarding(ctx)
+            });
+
+            app.read(|ctx| {
+                assert!(!did_open);
+                assert!(!model.as_ref(ctx).is_hoa_onboarding_open());
+                assert!(hoa_onboarding::has_completed_hoa_onboarding(ctx));
+            });
+        });
+    }
+}

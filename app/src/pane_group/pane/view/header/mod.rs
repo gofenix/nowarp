@@ -406,7 +406,9 @@ impl<P: BackingView> PaneHeader<P> {
         // We should only trigger this if we are in a git repository,
         // but the pane header will only render if we are already in one.
         let auth_state = crate::auth::AuthStateProvider::as_ref(app).get();
-        let should_show_tooltip = FeatureFlag::CodeLaunchModal.is_enabled()
+        let should_show_tooltip =
+            !crate::onboarding_suppression::suppress_automatic_new_feature_prompts()
+            && FeatureFlag::CodeLaunchModal.is_enabled()
             && !auth_state.is_onboarded().unwrap_or_default() // We only want to show the tooltip for new users.
             && !*CodeSettings::as_ref(app)
                 .dismissed_code_toolbelt_new_feature_popup

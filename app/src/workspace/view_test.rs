@@ -233,6 +233,104 @@ fn mock_workspace(app: &mut App) -> ViewHandle<Workspace> {
     workspace
 }
 
+#[test]
+fn test_anonymous_avatar_slot_uses_settings_button() {
+    let logged_out_auth_state = AuthStateProvider::new_logged_out_for_test();
+    let logged_in_auth_state = AuthStateProvider::new_for_test();
+
+    assert!(matches!(
+        Workspace::avatar_slot_action_for_auth_state(logged_out_auth_state.get()),
+        WorkspaceAction::ShowSettings
+    ));
+    assert!(matches!(
+        Workspace::avatar_slot_action_for_auth_state(logged_in_auth_state.get()),
+        WorkspaceAction::ToggleUserMenu
+    ));
+}
+
+#[test]
+fn test_show_settings_uses_appearance_default() {
+    assert_eq!(
+        Workspace::default_settings_page_for_show_settings(),
+        SettingsSection::Appearance
+    );
+}
+
+#[test]
+fn test_new_settings_pane_snapshot_uses_appearance_default() {
+    assert_eq!(
+        Workspace::settings_page_for_new_settings_pane(None),
+        SettingsSection::Appearance
+    );
+    assert_eq!(
+        Workspace::settings_page_for_new_settings_pane(Some(SettingsSection::Privacy)),
+        SettingsSection::Privacy
+    );
+}
+
+#[test]
+fn test_logged_in_user_menu_items_remain_available() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            let labels = workspace
+                .user_menu_items(ctx)
+                .iter()
+                .map(new_session_menu_label)
+                .collect::<Vec<_>>();
+
+            assert!(labels.contains(&"Settings".to_string()));
+            assert!(labels.contains(&"Log out".to_string()));
+        });
+    });
+}
+
+#[test]
+fn test_automatic_get_started_onboarding_is_suppressed() {
+    let _get_started = FeatureFlag::GetStartedTab.override_enabled(true);
+    let _agent_onboarding = FeatureFlag::AgentOnboarding.override_enabled(false);
+
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        app.update(|ctx| {
+            AuthStateProvider::as_ref(ctx).get().set_is_onboarded(false);
+        });
+
+        let workspace = mock_workspace(&mut app);
+
+        workspace.update(&mut app, |workspace, ctx| {
+            assert!(!workspace.should_trigger_get_started_onboarding(ctx));
+            assert!(
+                workspace
+                    .active_tab_pane_group()
+                    .as_ref(ctx)
+                    .has_terminal_panes(),
+                "startup should create a terminal tab instead of the Get Started onboarding tab"
+            );
+        });
+    });
+}
+
+#[test]
+fn test_welcome_tips_and_warm_welcome_are_unavailable_by_default() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+
+        let workspace = mock_workspace(&mut app);
+
+        workspace.read(&app, |workspace, _| {
+            assert!(matches!(
+                workspace.welcome_tips_view_state,
+                WelcomeTipsViewState::Unavailable
+            ));
+            assert!(!workspace.should_show_ai_assistant_warm_welcome);
+        });
+    });
+}
+
 fn restored_workspace(
     app: &mut App,
     window_snapshot: crate::app_state::WindowSnapshot,

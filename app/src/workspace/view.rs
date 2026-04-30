@@ -177,7 +177,9 @@ use crate::settings::{
 };
 use crate::settings_view::environments_page::EnvironmentsPage;
 use crate::settings_view::pane_manager::SettingsPaneManager;
-use crate::settings_view::{SettingsSection, SettingsView, SettingsViewEvent};
+use crate::settings_view::{
+    default_settings_section, SettingsSection, SettingsView, SettingsViewEvent,
+};
 #[cfg(all(target_os = "windows", feature = "local_tty"))]
 use crate::shell_indicator::ShellIndicatorType;
 use crate::terminal::available_shells::AvailableShell;
@@ -1477,7 +1479,8 @@ impl Workspace {
         ctx.subscribe_to_view(&welcome_tips_view, move |me, _, event, ctx| {
             me.handle_welcome_tips_event(event, ctx);
         });
-        let show_welcome_tips = !tips_completed.as_ref(ctx).skipped_or_completed;
+        let show_welcome_tips = !crate::onboarding_suppression::suppress_automatic_onboarding()
+            && !tips_completed.as_ref(ctx).skipped_or_completed;
         let welcome_tips_view_state = if show_welcome_tips {
             WelcomeTipsViewState::Available {
                 is_popup_open: false,
@@ -2835,16 +2838,18 @@ impl Workspace {
 
         // Show the Warp AI warm welcome iff the user hasn't dismissed it nor interacted with Warp AI before.
         // Also, avoid showing it in integration tests to prevent interaction with other tests.
-        let mut should_show_ai_assistant_warm_welcome: bool = !FeatureFlag::AgentMode.is_enabled()
-            && AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
-            && !matches!(ChannelState::channel(), Channel::Integration)
-            && ctx
-                .private_user_preferences()
-                .read_value(settings::DISMISSED_AI_ASSISTANT_WELCOME_KEY)
-                .unwrap_or_default()
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .map(|dismissed: bool| !dismissed)
-                .unwrap_or(true);
+        let mut should_show_ai_assistant_warm_welcome: bool =
+            !crate::onboarding_suppression::suppress_automatic_new_feature_prompts()
+                && !FeatureFlag::AgentMode.is_enabled()
+                && AISettings::as_ref(ctx).is_any_ai_enabled(ctx)
+                && !matches!(ChannelState::channel(), Channel::Integration)
+                && ctx
+                    .private_user_preferences()
+                    .read_value(settings::DISMISSED_AI_ASSISTANT_WELCOME_KEY)
+                    .unwrap_or_default()
+                    .and_then(|s| serde_json::from_str(&s).ok())
+                    .map(|dismissed: bool| !dismissed)
+                    .unwrap_or(true);
 
         // Don't automatically show the Warp AI welcome during onboarding if the block onboarding flow is being used.
         // This way, we can delay the reveal until the end of the onboarding flow so as not to overwhelm the user.
@@ -3840,7 +3845,9 @@ impl Workspace {
         let open_warp_drive = if !show_warp_home {
             if self.should_trigger_get_started_onboarding(ctx) {
                 self.trigger_get_started_onboarding(ctx);
-            } else if FeatureFlag::WelcomeTab.is_enabled() {
+            } else if FeatureFlag::WelcomeTab.is_enabled()
+                && !crate::onboarding_suppression::suppress_automatic_onboarding()
+            {
                 self.add_welcome_tab(ctx);
             } else {
                 self.add_new_session_tab_with_default_mode(
@@ -6654,6 +6661,10 @@ impl Workspace {
         object_id: CloudObjectTypeAndId,
         ctx: &mut ViewContext<Self>,
     ) {
+        if crate::onboarding_suppression::suppress_automatic_onboarding() {
+            return;
+        }
+
         if self.auth_state.is_anonymous_or_logged_out() {
             return;
         }
@@ -6700,6 +6711,10 @@ impl Workspace {
     }
 
     fn should_trigger_get_started_onboarding(&self, ctx: &mut ViewContext<Self>) -> bool {
+        if crate::onboarding_suppression::suppress_automatic_onboarding() {
+            return false;
+        }
+
         if !FeatureFlag::GetStartedTab.is_enabled() {
             return false;
         }
@@ -6732,6 +6747,17 @@ impl Workspace {
     /// If the user is new and therefore has not seen the in app onboarding,
     /// triggers the welcome block to be shown after bootstrapping is completed.
     fn check_and_trigger_onboarding(&mut self, ctx: &mut ViewContext<Self>) -> bool {
+        if crate::onboarding_suppression::suppress_automatic_onboarding() {
+            if !self.auth_state.is_onboarded().unwrap_or_default()
+                && !self.auth_state.is_anonymous_or_logged_out()
+            {
+                AuthManager::handle(ctx).update(ctx, |auth_manager, ctx| {
+                    auth_manager.set_user_onboarded(ctx);
+                });
+            }
+            return false;
+        }
+
         if !self.auth_state.is_onboarded().unwrap_or_default() {
             if self.should_show_agent_onboarding(ctx) {
                 // If the user is anonymous, we shouldn't trigger agent onboarding.
@@ -7166,6 +7192,7 @@ impl Workspace {
             return;
         }
 
+        let current_page = Self::settings_page_for_new_settings_pane(page);
         let ps1_grid_info = self.active_session_ps1_grid_info(ctx);
         // Open new tab and update current page
         self.settings_pane.update(ctx, move |settings_pane, ctx| {
@@ -7181,7 +7208,7 @@ impl Workspace {
             is_focused: true,
             custom_vertical_tabs_title: None,
             contents: LeafContents::Settings(SettingsPaneSnapshot::Local {
-                current_page: page.unwrap_or_default(),
+                current_page,
                 search_query: search_query.map(|s| s.to_owned()),
             }),
         })));
@@ -7191,6 +7218,14 @@ impl Workspace {
             Some("Settings".to_owned()),
             ctx,
         );
+    }
+
+    fn default_settings_page_for_show_settings() -> SettingsSection {
+        default_settings_section()
+    }
+
+    fn settings_page_for_new_settings_pane(page: Option<SettingsSection>) -> SettingsSection {
+        page.unwrap_or_else(default_settings_section)
     }
 
     /// Open a file from the given session as a notebook pane.
@@ -15513,7 +15548,7 @@ impl Workspace {
     }
 
     fn show_settings(&mut self, ctx: &mut ViewContext<Self>) {
-        self.show_settings_with_section(None, ctx);
+        self.show_settings_with_section(Some(Self::default_settings_page_for_show_settings()), ctx);
     }
 
     fn show_settings_with_section(
@@ -17745,23 +17780,30 @@ impl Workspace {
     }
 
     fn render_avatar_button(&self, appearance: &Appearance, ctx: &AppContext) -> Box<dyn Element> {
-        let is_anonymous = self.auth_state.is_anonymous_or_logged_out();
         let display_name = self
             .auth_state
             .username_for_display()
             .unwrap_or(DEFAULT_USER_DISPLAY_NAME.to_owned());
 
-        let avatar_content = if self.auth_state.is_anonymous_or_logged_out() {
-            AvatarContent::Icon(icons::Icon::Gear)
-        } else {
-            self.auth_state
-                .user_photo_url()
-                .map(|url| AvatarContent::Image {
-                    url,
-                    display_name: display_name.clone(),
-                })
-                .unwrap_or(AvatarContent::DisplayName(display_name.clone()))
-        };
+        if matches!(
+            Self::avatar_slot_action_for_auth_state(&self.auth_state),
+            WorkspaceAction::ShowSettings
+        ) {
+            return SavePosition::new(
+                self.render_settings_button(appearance),
+                USER_AVATAR_BUTTON_POSITION_ID,
+            )
+            .finish();
+        }
+
+        let avatar_content = self
+            .auth_state
+            .user_photo_url()
+            .map(|url| AvatarContent::Image {
+                url,
+                display_name: display_name.clone(),
+            })
+            .unwrap_or(AvatarContent::DisplayName(display_name.clone()));
 
         let mut avatar = Avatar::new(
             avatar_content,
@@ -17806,7 +17848,7 @@ impl Workspace {
                     container = container.with_background(appearance.theme().surface_2());
                 }
                 // On hover, show tooltip of user's display name (if it exists)
-                if !self.is_user_menu_open && !is_anonymous {
+                if !self.is_user_menu_open {
                     stack.add_positioned_overlay_child(
                         appearance
                             .ui_builder()
@@ -17837,6 +17879,14 @@ impl Workspace {
         .finish();
 
         SavePosition::new(Align::new(button).finish(), USER_AVATAR_BUTTON_POSITION_ID).finish()
+    }
+
+    fn avatar_slot_action_for_auth_state(auth_state: &AuthState) -> WorkspaceAction {
+        if auth_state.is_anonymous_or_logged_out() {
+            WorkspaceAction::ShowSettings
+        } else {
+            WorkspaceAction::ToggleUserMenu
+        }
     }
 
     fn render_resource_center_button(
@@ -19803,7 +19853,9 @@ impl TypedActionView for Workspace {
                     // Terminal and Agent are handled by the existing path
                     // (add_terminal_tab applies DefaultSessionMode::Agent internally).
                     DefaultSessionMode::Terminal | DefaultSessionMode::Agent => {
-                        if FeatureFlag::WelcomeTab.is_enabled() {
+                        if FeatureFlag::WelcomeTab.is_enabled()
+                            && !crate::onboarding_suppression::suppress_automatic_onboarding()
+                        {
                             self.add_welcome_tab(ctx);
                         } else {
                             self.add_terminal_tab(false, ctx);
@@ -20631,6 +20683,9 @@ impl TypedActionView for Workspace {
                 }
             }
             ShowAIAssistantWarmWelcome => {
+                if crate::onboarding_suppression::suppress_automatic_new_feature_prompts() {
+                    return;
+                }
                 self.should_show_ai_assistant_warm_welcome = true;
                 ctx.notify();
             }

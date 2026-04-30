@@ -31,6 +31,90 @@ else
     WARP_CHANNEL="oss"
 fi
 
+DATA_PROFILE="${WARP_DATA_PROFILE:-}"
+CLEAN_DATA_PROFILE=false
+OPEN_WITH_LAUNCHD=false
+RELEASE_BUILD=false
+
+print_usage() {
+  cat <<EOF
+Usage: ./script/run [options] [-- warp args]
+
+Options:
+  --data-profile NAME          Run Warp with WARP_DATA_PROFILE=NAME.
+  --clean-data-profile NAME    Remove profile-scoped local state, then run with NAME.
+  --fresh-data-profile         Run with a unique temporary data profile.
+EOF
+}
+
+require_arg() {
+  local flag="$1"
+  local value="${2:-}"
+
+  if [ -n "$value" ] && [ "${value:0:1}" != "-" ]; then
+    return 0
+  fi
+
+  echo "Error: Argument for $flag is missing" >&2
+  exit 1
+}
+
+data_domain_for_channel() {
+  if [ "$WARP_CHANNEL" = "local" ]; then
+    echo "dev.warp.Warp-Local"
+  else
+    echo "dev.warp.WarpOss"
+  fi
+}
+
+home_config_dir_for_channel() {
+  if [ "$WARP_CHANNEL" = "local" ]; then
+    echo ".warp-local"
+  else
+    echo ".warp-oss"
+  fi
+}
+
+clean_data_profile() {
+  local profile="$1"
+  local data_domain
+  local home_config_dir
+
+  data_domain="$(data_domain_for_channel)-$profile"
+  home_config_dir="$(home_config_dir_for_channel)-$profile"
+
+  echo "Cleaning Warp data profile '$profile'..."
+  rm -rf "$HOME/$home_config_dir"
+
+  if [[ "$OS_TYPE" = "Darwin" ]]; then
+    rm -rf "$HOME/Library/Application Support/$data_domain"
+    defaults delete "$data_domain" >/dev/null 2>&1 || true
+  elif [[ "$OS_TYPE" = "Linux" ]]; then
+    rm -rf "$HOME/.local/share/$data_domain"
+    rm -rf "$HOME/.local/state/$data_domain"
+    rm -rf "$HOME/.cache/$data_domain"
+    rm -rf "$HOME/.config/$data_domain"
+  elif [[ "$OS_TYPE" =~ ^(MINGW64_NT|MSYS_NT) ]]; then
+    if [ -n "${APPDATA:-}" ]; then
+      rm -rf "$APPDATA/warp/${data_domain#dev.warp.}"
+    fi
+    if [ -n "${LOCALAPPDATA:-}" ]; then
+      rm -rf "$LOCALAPPDATA/warp/${data_domain#dev.warp.}"
+    fi
+  fi
+}
+
+validate_data_profile() {
+  local profile="$1"
+
+  if [[ "$profile" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+    return 0
+  fi
+
+  echo "Error: data profile must contain only letters, numbers, '.', '_' or '-', and must start with a letter or number." >&2
+  exit 1
+}
+
 # Shared argument parsing. macOS-specific flags (--dont-open,
 # --open_with_launchd, --generate-schema) are forwarded through MAC_ARGS and
 # silently ignored on other platforms.
@@ -63,7 +147,23 @@ while (( "$#" )); do
         exit 1
       fi
       ;;
+    --data-profile)
+      require_arg "$1" "${2:-}"
+      DATA_PROFILE="$2"
+      shift 2
+      ;;
+    --clean-data-profile)
+      require_arg "$1" "${2:-}"
+      DATA_PROFILE="$2"
+      CLEAN_DATA_PROFILE=true
+      shift 2
+      ;;
+    --fresh-data-profile)
+      DATA_PROFILE="fresh-$(date +%Y%m%d%H%M%S)-$$"
+      shift
+      ;;
     --release)
+      RELEASE_BUILD=true
       CARGO_PARAMS+=("$1")
       MAC_ARGS+=("$1")
       shift
@@ -77,6 +177,15 @@ while (( "$#" )); do
         echo "Error: Argument for $1 is missing" >&2
         exit 1
       fi
+      ;;
+    --open_with_launchd)
+      OPEN_WITH_LAUNCHD=true
+      MAC_ARGS+=("$1")
+      shift
+      ;;
+    --help|-h)
+      print_usage
+      exit 0
       ;;
     *)
       # Unknown flags (including macOS-only flags like --dont-open) and any
@@ -107,6 +216,27 @@ done
 export FEATURES
 export WARP_BIN_NAME
 export WARP_CHANNEL
+
+if [ -n "$DATA_PROFILE" ]; then
+  validate_data_profile "$DATA_PROFILE"
+
+  if [[ "$OS_TYPE" = "Darwin" && "$OPEN_WITH_LAUNCHD" = true ]]; then
+    echo "Error: data profiles require direct execution; remove --open_with_launchd." >&2
+    exit 1
+  fi
+
+  if [ "$RELEASE_BUILD" = true ]; then
+    echo "Error: data profiles are only supported by debug builds; remove --release." >&2
+    exit 1
+  fi
+
+  if [ "$CLEAN_DATA_PROFILE" = true ]; then
+    clean_data_profile "$DATA_PROFILE"
+  fi
+
+  export WARP_DATA_PROFILE="$DATA_PROFILE"
+  echo "Using WARP_DATA_PROFILE=$WARP_DATA_PROFILE"
+fi
 
 if [[ "$OS_TYPE" = "Darwin" ]]; then
   if [[ ${#WARP_ARGS[@]} -gt 0 ]]; then

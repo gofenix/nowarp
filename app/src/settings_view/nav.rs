@@ -32,6 +32,7 @@ pub struct SettingsUmbrella {
 }
 
 impl SettingsUmbrella {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn new(label: &'static str, subpages: Vec<SettingsSection>) -> Self {
         let subpage_count = subpages.len();
         Self {
@@ -136,5 +137,6 @@ pub enum SettingsNavItem {
     /// A top-level page that is rendered directly in the sidebar.
     Page(SettingsSection),
     /// A collapsible group header whose children are subpage sections.
+    #[cfg_attr(not(test), allow(dead_code))]
     Umbrella(SettingsUmbrella),
 }
