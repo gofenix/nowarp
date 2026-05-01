@@ -15,6 +15,31 @@ fn use_latest_user_prompt_as_conversation_title_in_tab_names_defaults_to_false()
 }
 
 #[test]
+fn use_vertical_tabs_defaults_to_true() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+
+        TabSettings::handle(&app).read(&app, |settings, _ctx| {
+            assert!(*settings.use_vertical_tabs);
+        });
+    });
+}
+
+#[test]
+fn vertical_tabs_display_granularity_defaults_to_tabs() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+
+        TabSettings::handle(&app).read(&app, |settings, _ctx| {
+            assert_eq!(
+                *settings.vertical_tabs_display_granularity.value(),
+                VerticalTabsDisplayGranularity::Tabs
+            );
+        });
+    });
+}
+
+#[test]
 fn use_latest_user_prompt_as_conversation_title_in_tab_names_uses_vertical_tabs_path() {
     assert_eq!(
         UseLatestUserPromptAsConversationTitleInTabNames::toml_path(),
@@ -31,12 +56,12 @@ fn use_latest_user_prompt_as_conversation_title_in_tab_names_uses_vertical_tabs_
 }
 
 #[test]
-fn show_vertical_tab_panel_in_restored_windows_defaults_to_false() {
+fn show_vertical_tab_panel_in_restored_windows_defaults_to_true() {
     App::test((), |mut app| async move {
         initialize_settings_for_tests(&mut app);
 
         TabSettings::handle(&app).read(&app, |settings, _ctx| {
-            assert!(!*settings.show_vertical_tab_panel_in_restored_windows);
+            assert!(*settings.show_vertical_tab_panel_in_restored_windows);
         });
     });
 }
