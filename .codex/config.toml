@@ -1,6 +1,0 @@
-[mcp_servers.github]
-args = [
-    "-y",
-    "@modelcontextprotocol/server-github",
-]
-command = "npx"
