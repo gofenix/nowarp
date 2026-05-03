@@ -34,6 +34,7 @@ RELEASE_TAG="${NOWARP_RELEASE_TAG:-}"
 RELEASE_TITLE="${NOWARP_RELEASE_TITLE:-}"
 RELEASE_NOTES="${NOWARP_RELEASE_NOTES:-Nowarp macOS release.}"
 UPSTREAM_ARGS=()
+UPSTREAM_ARCH_MODE_SET=false
 
 while (($#)); do
   case "$1" in
@@ -70,6 +71,21 @@ while (($#)); do
     --release-tag)
       if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
         RELEASE_TAG="$2"
+        UPSTREAM_ARGS+=("$1" "$2")
+        shift 2
+      else
+        echo "Error: Argument for $1 is missing" >&2
+        exit 1
+      fi
+      ;;
+    --nouniversal)
+      UPSTREAM_ARCH_MODE_SET=true
+      UPSTREAM_ARGS+=("$1")
+      shift
+      ;;
+    --arch)
+      if [[ -n "${2:-}" && "${2:0:1}" != "-" ]]; then
+        UPSTREAM_ARCH_MODE_SET=true
         UPSTREAM_ARGS+=("$1" "$2")
         shift 2
       else
@@ -123,8 +139,13 @@ while (($#)); do
   esac
 done
 
+UPSTREAM_BUNDLE_ARGS=("${UPSTREAM_ARGS[@]}")
+if [[ "$UPSTREAM_ARCH_MODE_SET" != true ]]; then
+  UPSTREAM_BUNDLE_ARGS+=(--nouniversal)
+fi
+
 if [[ "$CHECK_ONLY" == true ]]; then
-  exec ./script/bundle --channel oss "${UPSTREAM_ARGS[@]}"
+  exec ./script/bundle --channel oss "${UPSTREAM_BUNDLE_ARGS[@]}"
 fi
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
@@ -180,8 +201,10 @@ fi
 
 if [[ "$DEBUG" == true ]]; then
   OUT_DIR="target/debug/bundle/osx"
+  TARGET_PROFILE_DIR="debug"
 else
   OUT_DIR="target/release-lto/bundle/osx"
+  TARGET_PROFILE_DIR="release-lto"
 fi
 
 SOURCE_APP="$OUT_DIR/$SOURCE_APP_NAME.app"
@@ -190,8 +213,29 @@ DMG_PATH="$OUT_DIR/$DMG_NAME"
 STAGE_DIR="$OUT_DIR/nowarp-dmg"
 ENTITLEMENTS_PATH="$OUT_DIR/nowarp-entitlements.plist"
 
+delete_rpath_if_present() {
+  local binary_path="$1"
+  local rpath="$2"
+
+  if [[ -f "$binary_path" ]] && otool -l "$binary_path" | grep -Fq "path $rpath "; then
+    install_name_tool -delete_rpath "$rpath" "$binary_path"
+  fi
+}
+
+prepare_upstream_bundle_cache() {
+  local framework_rpath="@executable_path/../Frameworks"
+
+  delete_rpath_if_present "target/aarch64-apple-darwin/$TARGET_PROFILE_DIR/warp-oss" "$framework_rpath"
+  delete_rpath_if_present "target/x86_64-apple-darwin/$TARGET_PROFILE_DIR/warp-oss" "$framework_rpath"
+  rm -rf \
+    "target/aarch64-apple-darwin/$TARGET_PROFILE_DIR/bundle/osx/$SOURCE_APP_NAME.app" \
+    "target/x86_64-apple-darwin/$TARGET_PROFILE_DIR/bundle/osx/$SOURCE_APP_NAME.app" \
+    "$SOURCE_APP"
+}
+
 echo "Building base OSS bundle as an intermediate artifact..."
-./script/bundle --channel oss --nosign "${UPSTREAM_ARGS[@]}"
+prepare_upstream_bundle_cache
+./script/bundle --channel oss --nosign "${UPSTREAM_BUNDLE_ARGS[@]}"
 
 if [[ ! -d "$SOURCE_APP" ]]; then
   echo "Expected source app at $SOURCE_APP, but it was not created." >&2
