@@ -16,7 +16,6 @@ use crate::terminal::model::session::LocalCommandExecutor;
 use crate::terminal::shell::ShellType;
 use crate::terminal::CLIAgent;
 use claude::ClaudeCodePluginManager;
-use codex::CodexPluginManager;
 use gemini::GeminiPluginManager;
 use opencode::OpenCodePluginManager;
 
@@ -237,12 +236,6 @@ pub(crate) fn plugin_manager_for_with_shell(
                 && FeatureFlag::HOANotifications.is_enabled() =>
         {
             Some(Box::new(OpenCodePluginManager))
-        }
-        CLIAgent::Codex
-            if FeatureFlag::CodexNotifications.is_enabled()
-                && FeatureFlag::HOANotifications.is_enabled() =>
-        {
-            Some(Box::new(CodexPluginManager))
         }
         CLIAgent::Gemini
             if FeatureFlag::GeminiNotifications.is_enabled()

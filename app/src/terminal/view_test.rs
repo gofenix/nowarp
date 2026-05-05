@@ -47,7 +47,7 @@ use crate::terminal::CLIAgent;
 
 use crate::terminal::block_list_element::{SnackbarPoint, SnackbarTranslationMode};
 use crate::terminal::block_list_viewport::{ClampingMode, ScrollLines};
-use crate::terminal::session_settings::AgentToolbarChipSelection;
+use crate::terminal::session_settings::{AgentToolbarChipSelection, CLIAgentToolbarChipSelection};
 use crate::view_components::find::FindWithinBlockState;
 use crate::workspace::ToastStack;
 
@@ -3741,6 +3741,22 @@ fn open_cli_agent_rich_input_for_agent(app: &mut App, agent: CLIAgent) -> ViewHa
     terminal
 }
 
+fn enable_cli_agent_rich_input_auto_toggle(app: &mut App) {
+    AISettings::handle(app).update(app, |settings, ctx| {
+        let _ = settings.auto_toggle_rich_input.set_value(true, ctx);
+    });
+
+    SessionSettings::handle(app).update(app, |settings, ctx| {
+        let _ = settings.cli_agent_footer_chip_selection.set_value(
+            CLIAgentToolbarChipSelection::Custom {
+                left: vec![AgentToolbarItemKind::RichInput],
+                right: vec![],
+            },
+            ctx,
+        );
+    });
+}
+
 #[test]
 fn cli_agent_rich_input_hint_text_mentions_active_cli_agent() {
     App::test((), |mut app| async move {
@@ -3998,7 +4014,7 @@ fn submit_with_plugin_and_auto_toggle_keeps_rich_input_open() {
         initialize_app_for_terminal_view(&mut app);
         let _agent_view = FeatureFlag::AgentView.override_enabled(true);
         let _cli_rich = FeatureFlag::CLIAgentRichInput.override_enabled(true);
-        // auto_toggle_rich_input defaults to true.
+        enable_cli_agent_rich_input_auto_toggle(&mut app);
         // Turn on auto_dismiss too — it should be overridden by auto_toggle.
         AISettings::handle(&app).update(&mut app, |settings, ctx| {
             let _ = settings
@@ -4113,7 +4129,7 @@ fn status_blocked_auto_closes_rich_input() {
         initialize_app_for_terminal_view(&mut app);
         let _agent_view = FeatureFlag::AgentView.override_enabled(true);
         let _cli_rich = FeatureFlag::CLIAgentRichInput.override_enabled(true);
-        // auto_toggle_rich_input defaults to true.
+        enable_cli_agent_rich_input_auto_toggle(&mut app);
 
         let terminal = add_window_with_terminal(&mut app, None);
 
@@ -4189,6 +4205,7 @@ fn status_in_progress_auto_opens_rich_input_after_blocked() {
         initialize_app_for_terminal_view(&mut app);
         let _agent_view = FeatureFlag::AgentView.override_enabled(true);
         let _cli_rich = FeatureFlag::CLIAgentRichInput.override_enabled(true);
+        enable_cli_agent_rich_input_auto_toggle(&mut app);
 
         let terminal = add_window_with_terminal(&mut app, None);
 
@@ -4508,6 +4525,7 @@ fn manual_dismiss_disables_auto_toggle_for_session() {
         initialize_app_for_terminal_view(&mut app);
         let _agent_view = FeatureFlag::AgentView.override_enabled(true);
         let _cli_rich = FeatureFlag::CLIAgentRichInput.override_enabled(true);
+        enable_cli_agent_rich_input_auto_toggle(&mut app);
 
         let terminal = add_window_with_terminal(&mut app, None);
 

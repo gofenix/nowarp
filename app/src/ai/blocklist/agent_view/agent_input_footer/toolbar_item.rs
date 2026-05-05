@@ -219,9 +219,6 @@ impl AgentToolbarItemKind {
             items.push(Self::ShareSession);
         }
         items.push(Self::FileExplorer);
-        if FeatureFlag::CLIAgentRichInput.is_enabled() {
-            items.push(Self::RichInput);
-        }
         items
     }
 
@@ -242,7 +239,6 @@ impl AgentToolbarItemKind {
             .collect();
         items.extend([
             Self::FileExplorer,
-            Self::RichInput,
             Self::FileAttach,
             Self::VoiceInput,
             Self::Settings,

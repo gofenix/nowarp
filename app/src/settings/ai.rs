@@ -1230,7 +1230,7 @@ define_settings_group!(AISettings, settings: [
     // direct keyboard interaction) and auto-opens when it leaves Blocked.
     auto_toggle_rich_input: AutoToggleRichInput {
         type: bool,
-        default: true,
+        default: false,
         supported_platforms: SupportedPlatforms::ALL,
         sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
         private: false,
