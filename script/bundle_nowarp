@@ -139,7 +139,10 @@ while (($#)); do
   esac
 done
 
-UPSTREAM_BUNDLE_ARGS=("${UPSTREAM_ARGS[@]}")
+UPSTREAM_BUNDLE_ARGS=()
+if ((${#UPSTREAM_ARGS[@]})); then
+  UPSTREAM_BUNDLE_ARGS=("${UPSTREAM_ARGS[@]}")
+fi
 if [[ "$UPSTREAM_ARCH_MODE_SET" != true ]]; then
   UPSTREAM_BUNDLE_ARGS+=(--nouniversal)
 fi
