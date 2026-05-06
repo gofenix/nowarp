@@ -1507,6 +1507,14 @@ impl BlockList {
             .expect("Blocklist should not be empty")
     }
 
+    /// Returns a mutable reference to the active block, or `None` if the
+    /// blocklist is empty. Use this in event handlers where the blocklist
+    /// may be empty due to timing (e.g. a CLI agent notification arriving
+    /// before the command execution block has been created).
+    pub fn active_block_mut_opt(&mut self) -> Option<&mut Block> {
+        self.blocks.last_mut()
+    }
+
     /// Returns a mutable reference to the active block. The active block should
     /// not be directly mutated outside of tests, as doing so can put the block
     /// list in an invalid state.

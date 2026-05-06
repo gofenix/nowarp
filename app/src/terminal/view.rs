@@ -11847,7 +11847,10 @@ impl TerminalView {
                 terminal_view_id, ..
             } if *terminal_view_id == self.view_id => {
                 let mut model = self.model.lock();
-                let active_block = model.block_list_mut().active_block_mut();
+                let Some(active_block) = model.block_list_mut().active_block_mut_opt() else {
+                    log::warn!("CLI agent session started but no active block exists yet");
+                    return;
+                };
                 active_block.enable_full_grid_clear_behavior();
                 if FeatureFlag::TrimTrailingBlankLines.is_enabled() {
                     active_block.set_trim_trailing_blank_rows(true);
@@ -11857,7 +11860,10 @@ impl TerminalView {
                 terminal_view_id, ..
             } if *terminal_view_id == self.view_id => {
                 let mut model = self.model.lock();
-                let active_block = model.block_list_mut().active_block_mut();
+                let Some(active_block) = model.block_list_mut().active_block_mut_opt() else {
+                    log::warn!("CLI agent session ended but no active block exists");
+                    return;
+                };
                 if FeatureFlag::TrimTrailingBlankLines.is_enabled() {
                     active_block.set_trim_trailing_blank_rows(false);
                 }

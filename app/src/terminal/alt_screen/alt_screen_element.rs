@@ -670,7 +670,10 @@ impl Element for AltScreenElement {
     }
 
     fn after_layout(&mut self, ctx: &mut AfterLayoutContext, app: &AppContext) {
-        let size = self.size.expect("Size should be set in `layout()`");
+        let Some(size) = self.size else {
+            log::warn!("alt_screen_element::after_layout called before layout()");
+            return;
+        };
         self.visible_lines = Some(size.y().into_pixels().to_lines(self.line_height()).floor());
         self.max_scroll_top = Some(self.total_lines() - self.visible_lines.unwrap());
         // After resizing the window to be larger, the max_scroll_top could have decreased,
@@ -687,10 +690,11 @@ impl Element for AltScreenElement {
 
     fn paint(&mut self, origin: Vector2F, ctx: &mut PaintContext, app: &AppContext) {
         start_trace!("alt_screen_element:paint");
-        self.bounds = Some(RectF::new(
-            origin,
-            self.size.expect("Size should be set before paint"),
-        ));
+        let Some(size) = self.size else {
+            log::warn!("alt_screen_element::paint called before size was set");
+            return;
+        };
+        self.bounds = Some(RectF::new(origin, size));
         self.origin = Some(UiPoint::from_vec2f(origin, ctx.scene.z_index()));
 
         let model = self.model.lock();
@@ -802,18 +806,19 @@ impl Element for AltScreenElement {
         );
 
         if let Some(cli_subagent_view) = &mut self.cli_subagent_view {
+            let Some(subagent_size) = cli_subagent_view.size() else {
+                log::warn!("cli_subagent_view not laid out before paint; skipping");
+                return;
+            };
             ctx.scene.start_layer(ClipBounds::ActiveLayer);
-            let size = cli_subagent_view
-                .size()
-                .expect("Subagent output was laid out already.");
+            let Some(bounds) = self.bounds else {
+                log::warn!("alt_screen_element bounds not set before painting subagent; skipping");
+                return;
+            };
             cli_subagent_view.paint(
                 vec2f(
-                    self.bounds.expect("bounds set during paint.").max_x()
-                        - CLI_SUBAGENT_HORIZONTAL_MARGIN
-                        - size.x(),
-                    self.bounds.expect("bounds set during paint.").max_y()
-                        - CLI_SUBAGENT_VERTICAL_MARGIN
-                        - size.y(),
+                    bounds.max_x() - CLI_SUBAGENT_HORIZONTAL_MARGIN - subagent_size.x(),
+                    bounds.max_y() - CLI_SUBAGENT_VERTICAL_MARGIN - subagent_size.y(),
                 ),
                 ctx,
                 app,

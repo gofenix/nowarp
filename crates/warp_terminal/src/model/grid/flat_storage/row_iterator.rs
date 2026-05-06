@@ -75,8 +75,9 @@ impl Iterator for RowIterator<'_> {
             // incorrect (but easy to get wrong).  This works, but I wonder if the
             // iterator returned by `AttributeMap` shouldn't actually implement
             // `Iterator` and should provide its own `next(&Grapheme)` function.
-            let fg = next_attribute(&mut fg_color_iter, &grapheme);
-            let BgAndStyle { bg, flags } = next_attribute(&mut bg_and_style_iter, &grapheme);
+            let fg = next_attribute(&mut fg_color_iter, &grapheme, self.template.fg);
+            let BgAndStyle { bg, flags } =
+                next_attribute(&mut bg_and_style_iter, &grapheme, BgAndStyle::default());
 
             let cell_width = grapheme.cell_width();
             if cell_width == 0 {
@@ -97,7 +98,12 @@ impl Iterator for RowIterator<'_> {
                     row.len(),
                     self.storage.index.grapheme_runs_for_row(self.row_index)?
                 );
-                panic!("Tried to mutate cell past the end of a row in RowIterator::next!")
+                // Skip the rest of this row rather than crashing — the
+                // grapheme/cell count is out of sync (e.g. a wide char at the
+                // end of a row that doesn't fit), so we cannot safely continue
+                // filling cells.  The row will still be returned with whatever
+                // content was written up to this point.
+                break;
             };
 
             let mut chars = grapheme.chars();
@@ -130,7 +136,9 @@ impl Iterator for RowIterator<'_> {
             // a spacer.
             if cell_width == 2 {
                 row[idx].flags.insert(Flags::WIDE_CHAR);
-                row[idx + 1].flags.insert(Flags::WIDE_CHAR_SPACER);
+                if idx + 1 < row.len() {
+                    row[idx + 1].flags.insert(Flags::WIDE_CHAR_SPACER);
+                }
             }
 
             current_offset += grapheme.len();
@@ -161,7 +169,13 @@ impl Iterator for RowIterator<'_> {
 ///
 /// This must be used instead of [`Iterator::next`] in order to handle
 /// multi-byte graphemes properly.
-fn next_attribute<T>(iter: &mut impl Iterator<Item = T>, grapheme: &Grapheme) -> T {
-    iter.nth(grapheme.len().as_usize() - 1)
-        .expect("should never fail to provide value")
+fn next_attribute<T>(iter: &mut impl Iterator<Item = T>, grapheme: &Grapheme, fallback: T) -> T {
+    iter.nth(grapheme.len().as_usize() - 1).unwrap_or_else(|| {
+        log::warn!(
+            "Attribute iterator exhausted before content iterator; \
+             grapheme byte length was {}",
+            grapheme.len()
+        );
+        fallback
+    })
 }
