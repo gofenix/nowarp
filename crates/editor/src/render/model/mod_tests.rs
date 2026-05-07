@@ -37,6 +37,27 @@ use string_offset::CharOffset;
 use warpui::elements::ListIndentLevel;
 
 #[test]
+fn fit_viewport_hides_horizontal_scroll_data_immediately_after_width_setting_change() {
+    let mut render_state =
+        RenderState::new_for_test(TEST_STYLES.clone(), 40.0.into_pixels(), 60.0.into_pixels());
+    let mut content = SumTree::new();
+    content.push(mock_paragraph(20., 120., 40));
+    render_state.set_content(content);
+    render_state.set_width_setting(super::WidthSetting::InfiniteWidth);
+
+    let before = render_state.scroll_data_horizontal();
+    assert!(before.total_size > before.visible_px);
+
+    let action = render_state.set_width_setting(super::WidthSetting::FitViewport);
+    assert!(matches!(action, super::StyleUpdateAction::Relayout));
+
+    let after = render_state.scroll_data_horizontal();
+    assert_eq!(after.scroll_start, Pixels::zero());
+    assert_eq!(after.visible_px, 40.0.into_pixels());
+    assert_eq!(after.total_size, 40.0.into_pixels());
+}
+
+#[test]
 fn test_height() {
     let mut render_state =
         RenderState::new_for_test(TEST_STYLES, 10.0.into_pixels(), 10.0.into_pixels());

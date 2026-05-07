@@ -1,10 +1,13 @@
 use futures::channel::oneshot;
 use std::path::Path;
+use futures::executor::block_on;
 use vec1::vec1;
 use warp_editor::content::buffer::{InitialBufferState, SelectionOffsets};
 use warp_editor::multiline::MultilineString;
+use warp_editor::render::model::viewport::SizeInfo;
 use warp_util::content_version::ContentVersion;
 use warpui::App;
+use warpui::geometry::vector::vec2f;
 
 use crate::{
     code::editor::line::EditorLineLocation, code::editor::view::code_text_styles,
@@ -54,6 +57,12 @@ fn mock_model_with_diff(
 async fn layout_model(app: &mut App, model: &ModelHandle<CodeEditorModel>) {
     app.read(|ctx| model.as_ref(ctx).render_state.as_ref(ctx).layout_complete())
         .await;
+}
+
+struct Observer {}
+
+impl Entity for Observer {
+    type Event = ();
 }
 
 #[test]
@@ -1025,5 +1034,83 @@ fn test_line_at_vertical_offset_returns_none_for_invalid() {
             beyond.is_none(),
             "Expected None for offset beyond content height"
         );
+    })
+}
+
+#[test]
+fn test_enabling_word_wrap_after_viewport_size_is_known_preserves_wide_layout() {
+    App::test((), |mut app| async move {
+        initialize_deps(&mut app);
+        let editor = mock_model(&mut app, "hello world\n", ContentVersion::new());
+
+        editor.update(&mut app, |editor, ctx| {
+            editor.render_state().update(ctx, |render_state, ctx| {
+                render_state.set_viewport_size(
+                    SizeInfo {
+                        viewport_size: vec2f(300.0, 200.0),
+                        needs_layout: false,
+                    },
+                    ctx,
+                );
+            });
+            editor.handle_word_wrap_change(true, ctx);
+        });
+
+        layout_model(&mut app, &editor).await;
+
+        let width = app.read(|ctx| editor.as_ref(ctx).render_state().as_ref(ctx).width());
+        assert!(width > Pixels::new(0.0));
+    })
+}
+
+#[test]
+fn test_viewport_resize_emits_layout_invalidation() {
+    App::test((), |mut app| async move {
+        initialize_deps(&mut app);
+        let editor = mock_model(
+            &mut app,
+            "hello hello hello hello hello hello\n",
+            ContentVersion::new(),
+        );
+        let (events_tx, events_rx) = async_channel::unbounded();
+
+        let editor2 = editor.clone();
+        let _observer = app.add_model::<Observer, _>(move |ctx| {
+            ctx.subscribe_to_model(&editor2, move |_, event, _| {
+                if matches!(event, CodeEditorModelEvent::LayoutInvalidated) {
+                    block_on(events_tx.send(())).unwrap();
+                }
+            });
+            Observer {}
+        });
+
+        editor.update(&mut app, |editor, ctx| {
+            editor.handle_word_wrap_change(true, ctx);
+            editor.render_state().update(ctx, |render_state, ctx| {
+                render_state.set_viewport_size(
+                    SizeInfo {
+                        viewport_size: vec2f(300.0, 200.0),
+                        needs_layout: false,
+                    },
+                    ctx,
+                );
+            });
+        });
+
+        layout_model(&mut app, &editor).await;
+
+        editor.update(&mut app, |editor, ctx| {
+            editor.render_state().update(ctx, |render_state, ctx| {
+                render_state.set_viewport_size(
+                    SizeInfo {
+                        viewport_size: vec2f(80.0, 200.0),
+                        needs_layout: true,
+                    },
+                    ctx,
+                );
+            });
+        });
+
+        assert_eq!(events_rx.recv().await, Ok(()));
     })
 }

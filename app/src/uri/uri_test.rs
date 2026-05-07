@@ -621,11 +621,11 @@ fn test_open_file_executable_bash_zsh_fish_route_to_execute() {
 }
 
 #[test]
-fn test_open_file_markdown_unchanged() {
+fn test_open_file_markdown_routes_to_editor() {
     let dir = tempfile::tempdir().unwrap();
     let p = dir.path().join("README.md");
     std::fs::write(&p, b"# hi\n").unwrap();
-    assert_eq!(classify_open_file_action(&p), OpenFileAction::Notebook);
+    assert_eq!(classify_open_file_action(&p), OpenFileAction::Editor);
 }
 
 #[test]

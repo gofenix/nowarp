@@ -61,11 +61,13 @@ use crate::{
     menu::{MenuItem, MenuItemFields},
     notebooks::file::{is_markdown_file, MarkdownDisplayMode},
     search::{files::icon::icon_from_file_path, ItemHighlightState},
+    settings::CodeSettings,
     tab::TAB_BAR_BORDER_HEIGHT,
     ui_components::{blended_colors, buttons::icon_button},
     view_components::{DismissibleToast, MarkdownToggleEvent, MarkdownToggleView},
     workspace::{ActiveSession, ToastStack, WorkspaceAction},
 };
+use settings::ToggleableSetting;
 
 use crate::pane_group::{
     pane::{view, PaneHeaderAction},
@@ -160,6 +162,7 @@ pub enum CodeViewAction {
     CloseAll,
     CloseSaved,
     ToggleMaximized,
+    ToggleWordWrap,
     #[cfg(feature = "local_fs")]
     CopyFilePath,
     #[cfg(feature = "local_fs")]
@@ -1951,10 +1954,17 @@ impl CodeView {
                 .into_item(),
         ];
 
+        let mut word_wrap_item = MenuItemFields::new("Word wrap")
+            .with_on_select_action(CodeViewAction::ToggleWordWrap);
+        if *CodeSettings::as_ref(ctx).word_wrap {
+            word_wrap_item = word_wrap_item.with_icon(warp_core::ui::icons::Icon::Check);
+        }
+
         #[cfg(feature = "local_fs")]
         if let Some(path) = self.local_path(ctx) {
             items.extend([
                 MenuItem::Separator,
+                word_wrap_item.into_item(),
                 MenuItemFields::new("Copy file path")
                     .with_on_select_action(CodeViewAction::CopyFilePath)
                     .into_item(),
@@ -2110,6 +2120,17 @@ impl TypedActionView for CodeView {
                 self.pane_configuration.update(ctx, |pane_config, ctx| {
                     pane_config.refresh_pane_header_overflow_menu_items(ctx);
                 });
+            }
+            CodeViewAction::ToggleWordWrap => {
+                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    if let Err(err) = settings.word_wrap.toggle_and_save_value(ctx) {
+                        log::warn!("Failed to toggle word wrap: {err:?}");
+                    }
+                });
+                self.pane_configuration.update(ctx, |pane_config, ctx| {
+                    pane_config.refresh_pane_header_overflow_menu_items(ctx);
+                });
+                ctx.notify();
             }
 
             #[cfg(feature = "local_fs")]

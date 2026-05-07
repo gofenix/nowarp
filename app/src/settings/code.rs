@@ -60,4 +60,14 @@ define_settings_group!(CodeSettings, settings: [
         toml_path: "code.editor.show_global_search",
         description: "Whether global file search is shown in the tools panel.",
     },
+    // Controls whether word wrap is enabled in the code editor.
+    word_wrap: WordWrap {
+        type: bool,
+        default: true,
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
+        private: false,
+        toml_path: "code.editor.word_wrap",
+        description: "Whether word wrap is enabled in the code editor.",
+    },
 ]);

@@ -26,7 +26,7 @@ use crate::{
     editor::InteractionState,
     features::FeatureFlag,
     notebooks::editor::rich_text_styles,
-    settings::{AppEditorSettings, FontSettings},
+    settings::{AppEditorSettings, CodeSettings, CodeSettingsChangedEvent, FontSettings},
     view_components::find::FindDirection,
 };
 use ai::diff_validation::DiffDelta;
@@ -310,6 +310,16 @@ impl CodeEditorView {
             me.handle_appearance_or_font_change(ctx);
         });
 
+        let code_settings_handle = CodeSettings::handle(ctx);
+        ctx.subscribe_to_model(&code_settings_handle, |me, _, event, ctx| {
+            if let CodeSettingsChangedEvent::WordWrap { .. } = event {
+                let word_wrap = *CodeSettings::as_ref(ctx).word_wrap;
+                me.model.update(ctx, |model, ctx| {
+                    model.handle_word_wrap_change(word_wrap, ctx);
+                });
+            }
+        });
+
         let model = ctx.add_model(|ctx| {
             CodeEditorModel::new(
                 initial_styles,
@@ -319,6 +329,11 @@ impl CodeEditorView {
                 ctx,
             )
         });
+        let word_wrap = *CodeSettings::as_ref(ctx).word_wrap;
+        model.update(ctx, |model, ctx| {
+            model.handle_word_wrap_change(word_wrap, ctx);
+        });
+
         ctx.subscribe_to_model(&model, |me, _, event, ctx| {
             me.handle_editor_model_event(event, ctx);
         });

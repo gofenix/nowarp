@@ -165,13 +165,9 @@ pub fn resolve_file_target_to_open_in_warp(
     settings: &EditorSettings,
     layout: Option<EditorLayout>,
 ) -> FileTarget {
-    let openable_file_type = is_file_openable_in_warp(path);
-    let is_markdown = matches!(openable_file_type, Some(OpenableFileType::Markdown));
     let layout = layout.unwrap_or(*settings.open_file_layout);
-
-    if is_markdown && *settings.prefer_markdown_viewer {
-        return FileTarget::MarkdownViewer(layout);
-    }
+    let _ = settings;
+    let _ = path;
     FileTarget::CodeEditor(layout)
 }
 
@@ -195,36 +191,30 @@ pub fn resolve_file_target(
 pub fn resolve_file_target_with_editor_choice(
     path: &Path,
     editor_choice: EditorChoice,
-    prefer_markdown_viewer: bool,
+    _prefer_markdown_viewer: bool,
     default_layout: EditorLayout,
     layout: Option<EditorLayout>,
 ) -> FileTarget {
     let is_openable_in_warp = is_file_openable_in_warp(path);
-    let is_markdown = matches!(is_openable_in_warp, Some(OpenableFileType::Markdown));
     let layout = layout.unwrap_or(default_layout);
     let is_openable_in_warp = is_openable_in_warp.is_some();
 
-    // 1. Markdown Viewer (only if user preference specified)
-    if is_markdown && prefer_markdown_viewer {
-        return FileTarget::MarkdownViewer(layout);
-    }
-
-    // 2. Warp Code Editor (Explicit user preference)
+    // 1. Warp Code Editor (Explicit user preference)
     if is_openable_in_warp && matches!(editor_choice, EditorChoice::Warp) {
         return FileTarget::CodeEditor(layout);
     }
 
-    // 3. Env Editor
+    // 2. Env Editor
     if matches!(editor_choice, EditorChoice::EnvEditor) {
         return FileTarget::EnvEditor;
     }
 
-    // 4. Binary files -> System Default
+    // 3. Binary files -> System Default
     if !is_openable_in_warp {
         return FileTarget::SystemGeneric;
     }
 
-    // 5. External Editor or System Default (for text files)
+    // 4. External Editor or System Default (for text files)
     match editor_choice {
         EditorChoice::ExternalEditor(editor) => FileTarget::ExternalEditor(editor),
         EditorChoice::SystemDefault => FileTarget::SystemDefault,
@@ -260,7 +250,7 @@ mod tests {
 
     #[test]
     #[cfg(feature = "local_fs")]
-    fn test_resolve_file_target_markdown_viewer_precedence() {
+    fn test_resolve_file_target_markdown_uses_editor_even_if_viewer_preferred() {
         let target = resolve_file_target_with_editor_choice(
             Path::new("README.md"),
             EditorChoice::ExternalEditor(Editor::VSCode),
@@ -269,7 +259,21 @@ mod tests {
             None,
         );
 
-        assert_eq!(target, FileTarget::MarkdownViewer(EditorLayout::SplitPane));
+        assert_eq!(target, FileTarget::ExternalEditor(Editor::VSCode));
+    }
+
+    #[test]
+    #[cfg(feature = "local_fs")]
+    fn test_resolve_file_target_to_open_in_warp_markdown_uses_code_editor() {
+        let target = resolve_file_target_with_editor_choice(
+            Path::new("README.md"),
+            EditorChoice::Warp,
+            true, /* prefer_markdown_viewer */
+            EditorLayout::SplitPane,
+            Some(EditorLayout::SplitPane),
+        );
+
+        assert_eq!(target, FileTarget::CodeEditor(EditorLayout::SplitPane));
     }
 
     #[test]

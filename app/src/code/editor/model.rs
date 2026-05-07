@@ -452,7 +452,9 @@ impl CodeEditorModel {
             RenderEvent::LayoutUpdated => {
                 ctx.emit(CodeEditorModelEvent::LayoutInvalidated);
             }
-            RenderEvent::NeedsResize => {}
+            RenderEvent::NeedsResize => {
+                self.rebuild_layout_and_refresh_diff(ctx);
+            }
         }
     }
 
@@ -1641,6 +1643,29 @@ impl CodeEditorModel {
 
         // Rebuild the color map for syntax highlighting as the theme may have changed.
         self.set_color_map(ctx);
+        self.update_cursor_line_highlights(ctx);
+        ctx.notify();
+    }
+
+    /// Handle a change to the word wrap setting. When word wrap is enabled, text wraps
+    /// at the viewport width (WidthSetting::FitViewport). When disabled, text extends
+    /// infinitely with horizontal scrolling (WidthSetting::InfiniteWidth).
+    pub fn handle_word_wrap_change(&self, word_wrap_enabled: bool, ctx: &mut ModelContext<Self>) {
+        let width_setting = if word_wrap_enabled {
+            WidthSetting::FitViewport
+        } else {
+            WidthSetting::InfiniteWidth
+        };
+        let style_update = self.render_state.update(ctx, |render_state, _| {
+            render_state.set_width_setting(width_setting)
+        });
+        match style_update {
+            StyleUpdateAction::Relayout => {
+                self.rebuild_layout_and_refresh_diff(ctx);
+            }
+            StyleUpdateAction::None => return,
+            StyleUpdateAction::Repaint => (),
+        }
         self.update_cursor_line_highlights(ctx);
         ctx.notify();
     }

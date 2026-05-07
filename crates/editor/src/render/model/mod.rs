@@ -185,7 +185,7 @@ const DASHED_UNDERLINE_GAP_LENGTH: f32 = 4.;
 
 /// In the future, we should also support MinimumWidth(f32) setting so the content will
 /// be laid out with a minimum width that could be larger than the viewport.
-#[derive(Default)]
+#[derive(Default, PartialEq)]
 pub enum WidthSetting {
     #[default]
     FitViewport,
@@ -1847,6 +1847,21 @@ impl RenderState {
         self
     }
 
+    /// Set the width setting at runtime. Returns `StyleUpdateAction::Relayout` if
+    /// the setting changed, or `StyleUpdateAction::None` if unchanged.
+    /// When switching to `FitViewport`, resets horizontal scroll to zero.
+    pub fn set_width_setting(&mut self, setting: WidthSetting) -> StyleUpdateAction {
+        if self.width_setting == setting {
+            return StyleUpdateAction::None;
+        }
+        let is_fit_viewport = matches!(setting, WidthSetting::FitViewport);
+        self.width_setting = setting;
+        if is_fit_viewport {
+            self.viewport.scroll_horizontally_to(Pixels::zero(), self.width());
+        }
+        StyleUpdateAction::Relayout
+    }
+
     /// Whether the surrounding container for this render state already provides horizontal
     /// scrolling over its full content area. Blocks that would otherwise introduce a nested
     /// horizontal scroll (for example, wide Markdown tables) should render at full intrinsic
@@ -2194,6 +2209,17 @@ impl RenderState {
     }
 
     pub fn scroll_data_horizontal(&self) -> ScrollData {
+        // When FitViewport (word wrap), there is never horizontal scroll.
+        // Return early to avoid a transient scrollbar during the async layout
+        // transition from InfiniteWidth to FitViewport.
+        if matches!(self.width_setting, WidthSetting::FitViewport) {
+            let viewport_width = self.viewport.width();
+            return ScrollData {
+                scroll_start: Pixels::zero(),
+                visible_px: viewport_width,
+                total_size: viewport_width,
+            };
+        }
         let mut visible_px = self.viewport.width();
         let total_size = self.width();
         if visible_px.approx_eq(total_size, UNIT_MARGIN) {

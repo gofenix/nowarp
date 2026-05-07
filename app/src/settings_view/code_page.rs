@@ -306,6 +306,7 @@ impl CodeSettingsPageView {
                     as Box<dyn SettingsWidget<View = Self>>,
                 Box::new(CodeReviewPanelToggleWidget::default()),
                 Box::new(CodeReviewDiffStatsToggleWidget::default()),
+                Box::new(WordWrapToggleWidget::default()),
                 Box::new(ProjectExplorerToggleWidget::default()),
                 Box::new(GlobalSearchToggleWidget::default()),
             ]);
@@ -381,6 +382,7 @@ impl CodeSettingsPageView {
                                 as Box<dyn SettingsWidget<View = Self>>,
                             Box::new(CodeReviewPanelToggleWidget::default()),
                             Box::new(CodeReviewDiffStatsToggleWidget::default()),
+                            Box::new(WordWrapToggleWidget::default()),
                             Box::new(ProjectExplorerToggleWidget::default()),
                             Box::new(GlobalSearchToggleWidget::default()),
                         ]);
@@ -543,6 +545,7 @@ pub enum CodeSettingsPageAction {
     ToggleCodeReviewPanel,
     ToggleShowCodeReviewDiffStats,
     ToggleAutoOpenCodeReviewPane,
+    ToggleWordWrap,
     ToggleProjectExplorer,
     ToggleGlobalSearch,
     /// Install (if needed) and enable a suggested LSP server.
@@ -718,6 +721,12 @@ impl TypedActionView for CodeSettingsPageView {
             CodeSettingsPageAction::ToggleProjectExplorer => {
                 CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
                     report_if_error!(settings.show_project_explorer.toggle_and_save_value(ctx));
+                });
+                ctx.notify();
+            }
+            CodeSettingsPageAction::ToggleWordWrap => {
+                CodeSettings::handle(ctx).update(ctx, |settings, ctx| {
+                    report_if_error!(settings.word_wrap.toggle_and_save_value(ctx));
                 });
                 ctx.notify();
             }
@@ -2374,6 +2383,46 @@ impl SettingsWidget for CodeReviewDiffStatsToggleWidget {
                 })
                 .finish(),
             Some("Show lines added and removed counts on the code review button.".into()),
+        )
+    }
+}
+
+#[derive(Default)]
+struct WordWrapToggleWidget {
+    switch_state: SwitchStateHandle,
+}
+
+impl SettingsWidget for WordWrapToggleWidget {
+    type View = CodeSettingsPageView;
+
+    fn search_terms(&self) -> &str {
+        "word wrap soft wrap line wrap editor markdown code"
+    }
+
+    fn render(
+        &self,
+        _view: &Self::View,
+        appearance: &Appearance,
+        app: &AppContext,
+    ) -> Box<dyn Element> {
+        let code_settings = CodeSettings::as_ref(app);
+
+        render_body_item::<CodeSettingsPageAction>(
+            "Word wrap".into(),
+            None,
+            LocalOnlyIconState::Hidden,
+            ToggleState::Enabled,
+            appearance,
+            appearance
+                .ui_builder()
+                .switch(self.switch_state.clone())
+                .check(*code_settings.word_wrap)
+                .build()
+                .on_click(move |ctx, _, _| {
+                    ctx.dispatch_typed_action(CodeSettingsPageAction::ToggleWordWrap);
+                })
+                .finish(),
+            Some("Wrap long lines in the code editor.".into()),
         )
     }
 }
