@@ -3930,7 +3930,7 @@ impl ToTotalIndex for BlockIndex {
 }
 
 #[cfg(test)]
-#[path = "blocks_test.rs"]
+#[path = "blocks_tests.rs"]
 mod tests;
 #[cfg(test)]
 pub use self::tests::insert_block;

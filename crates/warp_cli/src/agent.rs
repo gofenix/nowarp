@@ -1,6 +1,7 @@
 use std::{fmt, path::PathBuf};
 
 use clap::{Args, Subcommand, ValueEnum};
+use serde::{Deserialize, Serialize};
 
 use crate::{
     config_file::ConfigFileArgs, environment::EnvironmentCreateArgs, mcp::MCPSpec,
@@ -119,7 +120,8 @@ impl HiddenComputerUseArgs {
     }
 }
 /// The execution harness for an agent run.
-#[derive(Debug, Copy, Clone, ValueEnum, Eq, PartialEq, Default)]
+#[derive(Debug, Copy, Clone, ValueEnum, Eq, PartialEq, Hash, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Harness {
     /// Use Warp's built-in MAA infrastructure (default).
     #[default]
@@ -141,6 +143,7 @@ pub enum Harness {
     /// recognize. Surfaced via deserialization fallbacks (e.g. unknown GraphQL
     /// enum values, unknown `harness_type` strings); never selectable from the
     /// CLI or harness dropdown.
+    #[serde(other)]
     #[value(skip)]
     Unknown,
 }
@@ -153,9 +156,8 @@ impl Harness {
 
     pub fn parse_local_child_harness(value: &str) -> Option<Self> {
         match Self::parse_orchestration_harness(value) {
-            Some(harness @ (Self::Claude | Self::OpenCode)) => Some(harness),
-            Some(Self::Oz) | Some(Self::Gemini) | Some(Self::Codex) | Some(Self::Unknown)
-            | None => None,
+            Some(harness @ (Self::Claude | Self::OpenCode | Self::Codex)) => Some(harness),
+            Some(Self::Oz) | Some(Self::Gemini) | Some(Self::Unknown) | None => None,
         }
     }
 

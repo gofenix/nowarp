@@ -1123,12 +1123,30 @@ fn handle_terminal_view_event(
                 ctx.emit(pane_group::Event::FreeTierLimitCheckTriggered);
             }
             Event::RevealChildAgent { conversation_id } => {
-                if let Some(&child_pane_id) = group.child_agent_panes.get(conversation_id) {
-                    group.panes.show_pane_for_child_agent(child_pane_id);
-                    group.handle_pane_count_change(ctx);
-                    group.focus_pane(child_pane_id, true, ctx);
-                } else {
-                    log::warn!("No hidden pane found for child conversation {conversation_id:?}");
+                // Routed through the swap mechanism to land all reveal cases in one path.
+                group.swap_active_pane_to_conversation(pane_id, *conversation_id, ctx);
+            }
+            Event::SwapPaneToConversation { conversation_id } => {
+                // Swap visibility instead of cloning so in-flight state in the
+                // target pane is preserved.
+                group.swap_active_pane_to_conversation(pane_id, *conversation_id, ctx);
+            }
+            Event::OpenChildAgentInNewTab { conversation_id } => {
+                // Pane group can't add tabs; forward to the workspace.
+                ctx.emit(pane_group::Event::OpenChildAgentInNewTab {
+                    conversation_id: *conversation_id,
+                });
+            }
+            Event::OpenChildAgentInNewPane { conversation_id } => {
+                // Reuse the existing hidden child pane to preserve in-flight
+                // state and the live transcript instead of creating a new view.
+                if group
+                    .unhide_child_agent_pane_for_split_off(*conversation_id, ctx)
+                    .is_none()
+                {
+                    log::warn!(
+                        "OpenChildAgentInNewPane: no hidden child pane registered for conversation {conversation_id:?}"
+                    );
                 }
             }
             Event::StartAgentConversation(request) => {
@@ -1544,6 +1562,8 @@ fn launch_remote_child(
         parent_run_id: Some(parent_run_id),
         runtime_skills,
         referenced_attachments: vec![],
+        conversation_id: None,
+        initial_snapshot_token: None,
     };
 
     new_terminal_view.update(ctx, |terminal_view, ctx| {
@@ -1707,6 +1727,8 @@ fn handle_ai_history_event(
         | BlocklistAIHistoryEvent::UpdatedConversationMetadata { .. }
         | BlocklistAIHistoryEvent::UpdatedConversationArtifacts { .. }
         | BlocklistAIHistoryEvent::ConversationServerTokenAssigned { .. }
-        | BlocklistAIHistoryEvent::NewConversationRequestComplete { .. } => (),
+        | BlocklistAIHistoryEvent::ConversationOwnershipTransferred { .. }
+        | BlocklistAIHistoryEvent::NewConversationRequestComplete { .. }
+        | BlocklistAIHistoryEvent::OrchestrationConfigUpdated { .. } => (),
     }
 }
