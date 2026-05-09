@@ -169,6 +169,15 @@ impl<T: EventLoopSender> RemoteServerController<T> {
         }
     }
 
+    fn should_skip_ssh_remote_server(ctx: &ModelContext<Self>) -> bool {
+        matches!(
+            *WarpifySettings::as_ref(ctx)
+                .ssh_extension_install_mode
+                .value(),
+            SshExtensionInstallMode::NeverInstall
+        )
+    }
+
     /// Idle -> AwaitingCheck
     fn on_ssh_init_shell_requested(&mut self, info: SessionInfo, ctx: &mut ModelContext<Self>) {
         let IsLegacySSHSession::Yes { socket_path } = &info.is_legacy_ssh_session else {
@@ -197,6 +206,13 @@ impl<T: EventLoopSender> RemoteServerController<T> {
             } => {
                 self.flush_stashed_bootstrap(old_info, ctx);
             }
+        }
+        if Self::should_skip_ssh_remote_server(ctx) {
+            log::info!(
+                "SSH remote server disabled by settings; skipping binary check/install/connect: session={session_id:?}"
+            );
+            self.flush_stashed_bootstrap(info, ctx);
+            return;
         }
         let transport = SshTransport::new(socket_path, self.build_auth_context(ctx));
         self.did_install = false;

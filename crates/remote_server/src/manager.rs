@@ -162,6 +162,10 @@ fn version_is_compatible(client: Option<&str>, server: &str) -> bool {
     }
 }
 
+#[cfg(test)]
+#[path = "manager_tests.rs"]
+mod tests;
+
 #[cfg(not(target_family = "wasm"))]
 fn client_event_kind(event: &ClientEvent) -> &'static str {
     match event {

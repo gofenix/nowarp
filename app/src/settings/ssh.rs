@@ -6,7 +6,7 @@ define_settings_group!(SshSettings,
     settings: [
         enable_legacy_ssh_wrapper: EnableSshWrapper {
             type: bool,
-            default: true,
+            default: false,
             supported_platforms: SupportedPlatforms::ALL,
             sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
             private: false,
@@ -16,3 +16,7 @@ define_settings_group!(SshSettings,
         },
     ]
 );
+
+#[cfg(test)]
+#[path = "ssh_tests.rs"]
+mod tests;

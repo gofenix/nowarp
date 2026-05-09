@@ -50,3 +50,7 @@ pub fn evaluate_warpify_ssh_host(
         command: command.to_string(),
     }
 }
+
+#[cfg(test)]
+#[path = "ssh_detection_tests.rs"]
+mod tests;

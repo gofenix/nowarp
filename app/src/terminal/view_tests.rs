@@ -51,7 +51,7 @@ use crate::terminal::model::ansi::{BootstrappedValue, PreexecValue};
 use crate::terminal::model::blocks::{insert_block, TotalIndex};
 use crate::terminal::model::grid::Dimensions as _;
 use crate::terminal::model::terminal_model::WithinBlock;
-use crate::terminal::session_settings::AgentToolbarChipSelection;
+use crate::terminal::session_settings::{AgentToolbarChipSelection, CLIAgentToolbarChipSelection};
 use crate::terminal::view::ambient_agent::AmbientAgentViewModelEvent;
 use crate::terminal::CLIAgent;
 

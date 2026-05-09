@@ -45,7 +45,7 @@ maybe_define_setting!(SshHostsDenylist, group: WarpifySettings, {
 
 maybe_define_setting!(EnableSshWarpification, group: WarpifySettings, {
     type: bool,
-    default: true,
+    default: false,
     supported_platforms: SupportedPlatforms::ALL,
     sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
     private: false,
@@ -63,8 +63,8 @@ maybe_define_setting!(UseSshTmuxWrapper, group: WarpifySettings, {
     description: "Whether to use a tmux-based wrapper for SSH warpification.",
 });
 
-/// Controls how Warp handles the SSH extension (remote server binary) when connecting
-/// to a remote host that does not already have it installed.
+/// Controls whether Warp may check, install, update, or connect the SSH extension
+/// (remote server binary) when connecting to a remote host.
 #[derive(
     Default,
     Debug,
@@ -83,12 +83,12 @@ maybe_define_setting!(UseSshTmuxWrapper, group: WarpifySettings, {
     rename_all = "snake_case"
 )]
 pub enum SshExtensionInstallMode {
-    /// Always prompt the user before installing (default).
-    #[default]
+    /// Always prompt the user before installing.
     AlwaysAsk,
     /// Automatically install and connect without prompting.
     AlwaysInstall,
-    /// Never install; fall back to legacy warpification.
+    /// Never check, install, update, or connect the SSH extension; continue with the normal SSH session.
+    #[default]
     NeverInstall,
 }
 
@@ -99,7 +99,7 @@ maybe_define_setting!(SshExtensionInstallModeSetting, group: WarpifySettings, {
     sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
     private: false,
     toml_path: "warpify.ssh.ssh_extension_install_mode",
-    description: "Controls SSH extension installation behavior.",
+    description: "Controls whether Warp may check, install, update, or connect the SSH extension.",
 });
 
 impl SshExtensionInstallMode {

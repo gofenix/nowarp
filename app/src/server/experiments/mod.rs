@@ -155,14 +155,8 @@ impl ServerExperiment {
                 FeatureFlag::AgentHarness.set_enabled(true);
             }
             Self::SshRemoteServerControl => {
-                // Remote server binary is not yet supported on Windows.
+                FeatureFlag::SshRemoteServer.set_enabled(false);
                 if cfg!(not(windows)) {
-                    FeatureFlag::SshRemoteServer.set_enabled(true);
-                    // Override the default install mode to NeverInstall for users
-                    // who haven't explicitly changed it. `load_value` sets the
-                    // in-memory value without persisting, so the override is
-                    // re-applied from the experiment cache on every launch and
-                    // disappears if the user leaves the experiment.
                     WarpifySettings::handle(_ctx).update(_ctx, |settings, ctx| {
                         if !settings
                             .ssh_extension_install_mode
@@ -178,19 +172,15 @@ impl ServerExperiment {
                 }
             }
             Self::SshRemoteServerExperiment => {
-                // Remote server binary is not yet supported on Windows.
+                FeatureFlag::SshRemoteServer.set_enabled(false);
                 if cfg!(not(windows)) {
-                    FeatureFlag::SshRemoteServer.set_enabled(true);
-                    // Restore the default install mode in case the user was
-                    // previously in the control arm (which overrides it to
-                    // NeverInstall).
                     WarpifySettings::handle(_ctx).update(_ctx, |settings, ctx| {
                         if !settings
                             .ssh_extension_install_mode
                             .is_value_explicitly_set()
                         {
                             let _ = settings.ssh_extension_install_mode.load_value(
-                                SshExtensionInstallMode::default(),
+                                SshExtensionInstallMode::NeverInstall,
                                 false,
                                 ctx,
                             );

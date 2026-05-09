@@ -1,6 +1,26 @@
 #[cfg(windows)]
 use super::WarpifySettings;
 
+use super::{EnableSshWarpification, SshExtensionInstallMode, SshExtensionInstallModeSetting};
+use settings::Setting;
+
+#[test]
+fn ssh_warpification_is_disabled_by_default() {
+    assert!(!EnableSshWarpification::default_value());
+}
+
+#[test]
+fn ssh_extension_is_never_installed_by_default() {
+    assert_eq!(
+        SshExtensionInstallMode::default(),
+        SshExtensionInstallMode::NeverInstall
+    );
+    assert_eq!(
+        SshExtensionInstallModeSetting::default_value(),
+        SshExtensionInstallMode::NeverInstall
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn test_wsl_subshell_detection_success() {
