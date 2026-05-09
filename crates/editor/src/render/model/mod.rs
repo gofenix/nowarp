@@ -1857,7 +1857,8 @@ impl RenderState {
         let is_fit_viewport = matches!(setting, WidthSetting::FitViewport);
         self.width_setting = setting;
         if is_fit_viewport {
-            self.viewport.scroll_horizontally_to(Pixels::zero(), self.width());
+            self.viewport
+                .scroll_horizontally_to(Pixels::zero(), self.width());
         }
         StyleUpdateAction::Relayout
     }

@@ -1,13 +1,13 @@
 use futures::channel::oneshot;
-use std::path::Path;
 use futures::executor::block_on;
+use std::path::Path;
 use vec1::vec1;
 use warp_editor::content::buffer::{InitialBufferState, SelectionOffsets};
 use warp_editor::multiline::MultilineString;
 use warp_editor::render::model::viewport::SizeInfo;
 use warp_util::content_version::ContentVersion;
-use warpui::App;
 use warpui::geometry::vector::vec2f;
+use warpui::App;
 
 use crate::{
     code::editor::line::EditorLineLocation, code::editor::view::code_text_styles,

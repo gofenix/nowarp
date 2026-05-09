@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use crate::ai::persisted_workspace::PersistedWorkspace;
 use crate::auth::AuthStateProvider;
 use crate::default_terminal::DefaultTerminal;
-use crate::features::{FeatureFlag, runtime_flags_menu_items};
+use crate::features::{runtime_flags_menu_items, FeatureFlag};
 use crate::root_view::OpenLaunchConfigArg;
 use crate::server::telemetry::LaunchConfigUiLocation;
 use crate::settings::{
@@ -16,7 +16,7 @@ use crate::terminal::session_settings::SessionSettings;
 use crate::terminal::settings::{SpacingMode, TerminalSettings};
 use crate::undo_close::UndoCloseStack;
 use crate::user_config::WarpConfig;
-use crate::util::bindings::{self, CustomAction, trigger_to_keystroke};
+use crate::util::bindings::{self, trigger_to_keystroke, CustomAction};
 use crate::util::links;
 use crate::workspace::sync_inputs::SyncedInputState;
 use crate::{auth, report_if_error};
@@ -24,8 +24,8 @@ use ai::workspace::WorkspaceMetadata;
 use csv::Writer;
 use enclose::enclose;
 use itertools::Itertools;
-use settings::Setting as _;
 use settings::manager::SettingsManager;
+use settings::Setting as _;
 use warp_util::path::user_friendly_path;
 use warpui::actions::StandardAction;
 use warpui::keymap::{Keystroke, Trigger};
@@ -436,11 +436,9 @@ fn make_new_view_menu(ctx: &AppContext) -> Menu {
             move |ctx| {
                 TerminalSettings::handle(ctx).update(ctx, |terminal_settings, ctx| {
                     let current_value = *terminal_settings.spacing_mode;
-                    report_if_error!(
-                        terminal_settings
-                            .spacing_mode
-                            .set_value(current_value.other_mode(), ctx)
-                    );
+                    report_if_error!(terminal_settings
+                        .spacing_mode
+                        .set_value(current_value.other_mode(), ctx));
                 });
             },
             move |_props, _| MenuItemPropertyChanges {

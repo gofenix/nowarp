@@ -1954,8 +1954,8 @@ impl CodeView {
                 .into_item(),
         ];
 
-        let mut word_wrap_item = MenuItemFields::new("Word wrap")
-            .with_on_select_action(CodeViewAction::ToggleWordWrap);
+        let mut word_wrap_item =
+            MenuItemFields::new("Word wrap").with_on_select_action(CodeViewAction::ToggleWordWrap);
         if *CodeSettings::as_ref(ctx).word_wrap {
             word_wrap_item = word_wrap_item.with_icon(warp_core::ui::icons::Icon::Check);
         }
