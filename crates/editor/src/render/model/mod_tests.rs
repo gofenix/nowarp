@@ -357,6 +357,7 @@ fn test_non_empty_content_can_hide_final_trailing_newline() {
             model.viewport.width().as_f32(),
         )),
         code_block_type: Default::default(),
+        pending_mermaid_asset: None,
     });
     model.set_content(content);
 
@@ -633,6 +634,7 @@ fn test_first_line_bounds() {
             model.viewport.width().as_f32(),
         )),
         code_block_type: Default::default(),
+        pending_mermaid_asset: None,
     });
     model.set_content(content);
 
