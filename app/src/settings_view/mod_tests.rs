@@ -1,5 +1,6 @@
-use super::*;
 use settings_page::MatchData;
+
+use super::*;
 
 #[test]
 fn settings_sidebar_nav_items_are_terminal_focused() {
@@ -147,6 +148,7 @@ fn restored_hidden_settings_sections_normalize_to_appearance() {
         );
     }
 }
+
 
 // ── SettingsSection classification ──────────────────────────────────────────
 
