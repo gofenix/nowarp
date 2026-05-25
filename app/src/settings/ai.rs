@@ -878,6 +878,15 @@ define_settings_group!(AISettings, settings: [
         toml_path: "agents.warp_agent.active_ai.custom_endpoint_model",
         description: "Model name for the custom endpoint (e.g. gpt-4o, deepseek-chat).",
     }
+    custom_endpoint_api_key: CustomEndpointApiKey {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
+        private: true,
+        toml_path: "agents.warp_agent.active_ai.custom_endpoint_api_key",
+        description: "API key for the custom OpenAI-compatible endpoint.",
+    }
     // This field should not be referenced directly to lookup Voice AI enablement -- use the
     // `is_voice_input_enabled()` getter.
     voice_input_enabled_internal: VoiceInputEnabled {
@@ -1660,6 +1669,7 @@ impl AISettings {
             && *self.custom_endpoint_enabled_internal
             && !self.custom_endpoint_base_url.is_empty()
             && !self.custom_endpoint_model.is_empty()
+            && !self.custom_endpoint_api_key.is_empty()
     }
 
     pub fn custom_endpoint_base_url(&self) -> &str {
@@ -1668,6 +1678,10 @@ impl AISettings {
 
     pub fn custom_endpoint_model(&self) -> &str {
         &self.custom_endpoint_model
+    }
+
+    pub fn custom_endpoint_api_key(&self) -> &str {
+        &self.custom_endpoint_api_key
     }
 
     pub fn is_natural_language_autosuggestions_enabled(&self, app: &warpui::AppContext) -> bool {

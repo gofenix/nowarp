@@ -163,7 +163,6 @@ impl PassiveSuggestionsModel {
     ) {
         use crate::ai::custom_endpoint::{CustomEndpointConfig, request_suggestion};
         use crate::network::NetworkStatus;
-        use ai::api_keys::ApiKeyManager;
         use uuid::Uuid;
 
         if !NetworkStatus::as_ref(ctx).is_online() {
@@ -173,10 +172,7 @@ impl PassiveSuggestionsModel {
         let ai_settings = AISettings::as_ref(ctx);
         let config = CustomEndpointConfig {
             base_url: ai_settings.custom_endpoint_base_url().to_string(),
-            api_key: ApiKeyManager::as_ref(ctx)
-                .custom_endpoint_key()
-                .unwrap_or_default()
-                .to_string(),
+            api_key: ai_settings.custom_endpoint_api_key().to_string(),
             model: ai_settings.custom_endpoint_model().to_string(),
         };
 
