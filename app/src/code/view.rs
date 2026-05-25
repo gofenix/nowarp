@@ -67,20 +67,14 @@ use crate::pane_group::{
     PaneEvent,
 };
 use crate::quit_warning::UnsavedStateSummary;
-use crate::search::files::icon::icon_from_file_path;
-use crate::search::ItemHighlightState;
 use crate::server::telemetry::CodeContextDestination;
-use crate::tab::TAB_BAR_BORDER_HEIGHT;
 use crate::terminal::cli_agent::{
     build_selection_line_range_prompt, build_selection_substring_prompt,
 };
 use crate::terminal::view::CliAgentRouting;
-use crate::ui_components::blended_colors;
-use crate::ui_components::buttons::icon_button;
 use crate::util::path::{display_name_with_host, display_path_with_host};
-use crate::view_components::{DismissibleToast, MarkdownToggleEvent, MarkdownToggleView};
 use crate::workspace::util::get_context_target_terminal_view;
-use crate::workspace::{ActiveSession, TabBarDropTargetData, ToastStack, WorkspaceAction};
+use crate::workspace::TabBarDropTargetData;
 use crate::{send_telemetry_from_ctx, TelemetryEvent};
 
 type SaveCallback =

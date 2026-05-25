@@ -18,10 +18,6 @@ use crate::features::FeatureFlag;
 use crate::terminal::model::session::LocalCommandExecutor;
 use crate::terminal::shell::ShellType;
 use crate::terminal::CLIAgent;
-use claude::ClaudeCodePluginManager;
-use codex::CodexPluginManager;
-use gemini::GeminiPluginManager;
-use opencode::OpenCodePluginManager;
 
 /// Distinguishes whether the plugin instructions modal should show install or update steps.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

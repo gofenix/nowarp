@@ -333,7 +333,7 @@ use crate::settings_view::handoff_environment_creation_modal::{
 use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};
 use crate::settings_view::mcp_servers_page::MCPServersSettingsPage;
 use crate::settings_view::pane_manager::SettingsPaneManager;
-use crate::settings_view::{flags, SettingsSection, SettingsView, SettingsViewEvent};
+use crate::settings_view::{default_settings_section, flags, SettingsSection, SettingsView, SettingsViewEvent};
 #[cfg(all(target_os = "windows", feature = "local_tty"))]
 use crate::shell_indicator::ShellIndicatorType;
 use crate::tab::{
