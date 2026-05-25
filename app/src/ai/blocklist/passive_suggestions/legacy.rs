@@ -24,6 +24,7 @@ use crate::report_error;
 use crate::server::server_api::ServerApiProvider;
 use crate::server::telemetry::PromptSuggestionFallbackReason;
 use crate::settings::AISettings;
+use crate::ai::block_context::BlockContext;
 use crate::terminal::event::{BlockType, UserBlockCompleted};
 use crate::terminal::model::block::BlockId;
 use crate::terminal::model::session::{active_session::ActiveSession, SessionType};
@@ -152,6 +153,62 @@ impl PassiveSuggestionsModel {
         aborted_stream_ids
     }
 
+    fn send_custom_endpoint_request(
+        &mut self,
+        block_completed: &UserBlockCompleted,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        use crate::ai::custom_endpoint::{CustomEndpointConfig, request_suggestion};
+        use crate::network::NetworkStatus;
+        use ai::api_keys::ApiKeyManager;
+        use uuid::Uuid;
+
+        if !NetworkStatus::as_ref(ctx).is_online() {
+            return;
+        }
+
+        let ai_settings = AISettings::as_ref(ctx);
+        let config = CustomEndpointConfig {
+            base_url: ai_settings.custom_endpoint_base_url().to_string(),
+            api_key: ApiKeyManager::as_ref(ctx)
+                .custom_endpoint_key()
+                .unwrap_or_default()
+                .to_string(),
+            model: ai_settings.custom_endpoint_model().to_string(),
+        };
+
+        let block_context = *BlockContext::from_completed_block(block_completed);
+        let block_id = block_context.id.clone();
+        let command = block_context.command.clone();
+        let output = block_context.output.clone();
+        let exit_code = block_context.exit_code;
+        let pwd = block_context.pwd.clone();
+
+        self.prompt_suggestions_future_handle = Some(ctx.spawn(
+            request_suggestion(config, command.clone(), output, exit_code.value(), pwd),
+            move |me, result, ctx| {
+                me.prompt_suggestions_future_handle = None;
+                let Ok(prompt) = result else {
+                    return;
+                };
+
+                ctx.emit(PassiveSuggestionsEvent::PromptSuggestionsGenerated {
+                    prompt_suggestion: AgentModePromptSuggestion::Success(PromptSuggestion {
+                        id: Uuid::new_v4().to_string(),
+                        label: None,
+                        prompt,
+                        coding_query_context: None,
+                        static_prompt_suggestion_name: None,
+                        should_start_new_conversation: false,
+                    }),
+                    block_id,
+                    command,
+                    request_duration_ms: 0,
+                });
+            },
+        ));
+    }
+
     fn handle_model_event(&mut self, event: &ModelEvent, ctx: &mut ModelContext<Self>) {
         match event {
             ModelEvent::AfterBlockStarted { .. } => {
@@ -232,6 +289,12 @@ impl PassiveSuggestionsModel {
                 .block_at(block_completed.index)
                 .is_some_and(|block| block.is_oz_environment_startup_command());
         if is_oz_environment_startup_command {
+            return;
+        }
+
+        // If custom endpoint is configured, use it instead of Warp's cloud service.
+        if AISettings::as_ref(ctx).is_custom_endpoint_enabled(ctx) {
+            self.send_custom_endpoint_request(block_completed, ctx);
             return;
         }
 

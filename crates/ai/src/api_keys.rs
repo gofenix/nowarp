@@ -22,6 +22,7 @@ pub struct ApiKeys {
     pub anthropic: Option<String>,
     pub openai: Option<String>,
     pub open_router: Option<String>,
+    pub custom_endpoint: Option<String>,
 }
 
 impl ApiKeys {
@@ -30,6 +31,7 @@ impl ApiKeys {
             || self.anthropic.is_some()
             || self.google.is_some()
             || self.open_router.is_some()
+            || self.custom_endpoint.is_some()
     }
 }
 
@@ -93,6 +95,16 @@ impl ApiKeyManager {
         self.write_keys_to_secure_storage(ctx);
     }
 
+    pub fn set_custom_endpoint_key(&mut self, key: Option<String>, ctx: &mut ModelContext<Self>) {
+        self.keys.custom_endpoint = key;
+        ctx.emit(ApiKeyManagerEvent::KeysUpdated);
+        self.write_keys_to_secure_storage(ctx);
+    }
+
+    pub fn custom_endpoint_key(&self) -> Option<&str> {
+        self.keys.custom_endpoint.as_deref()
+    }
+
     pub fn set_aws_credentials_state(
         &mut self,
         state: AwsCredentialsState,
@@ -138,6 +150,10 @@ impl ApiKeyManager {
             .then(|| self.keys.open_router.clone())
             .flatten()
             .unwrap_or_default();
+        let custom_endpoint = include_byo_keys
+            .then(|| self.keys.custom_endpoint.clone())
+            .flatten()
+            .unwrap_or_default();
         // Also include credentials when running with OIDC-managed Bedrock inference, regardless
         // of the per-user setting flag (which only applies to the local credential chain path).
         let include_aws = include_aws_bedrock_credentials
@@ -158,6 +174,7 @@ impl ApiKeyManager {
             && openai.is_empty()
             && google.is_empty()
             && open_router.is_empty()
+            && custom_endpoint.is_empty()
             && aws_credentials.is_none()
         {
             None

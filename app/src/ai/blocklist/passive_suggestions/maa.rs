@@ -144,6 +144,79 @@ impl PassiveSuggestionsModel {
             .is_some_and(|model| model.as_ref(ctx).is_ambient_agent())
     }
 
+    fn send_custom_endpoint_request(
+        &mut self,
+        block_completed: &UserBlockCompleted,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        use crate::ai::custom_endpoint::{CustomEndpointConfig, request_suggestion};
+        use crate::network::NetworkStatus;
+        use ai::api_keys::ApiKeyManager;
+
+        if !NetworkStatus::as_ref(ctx).is_online() {
+            return;
+        }
+
+        let ai_settings = AISettings::as_ref(ctx);
+        let config = CustomEndpointConfig {
+            base_url: ai_settings.custom_endpoint_base_url().to_string(),
+            api_key: ApiKeyManager::as_ref(ctx)
+                .custom_endpoint_key()
+                .unwrap_or_default()
+                .to_string(),
+            model: ai_settings.custom_endpoint_model().to_string(),
+        };
+
+        let block_context = *BlockContext::from_completed_block(block_completed);
+        let trigger = PassiveSuggestionTrigger::ShellCommandCompleted(
+            ShellCommandCompletedTrigger {
+                executed_shell_command: Box::new(block_context.clone()),
+                relevant_files: vec![],
+            },
+        );
+
+        let command = block_context.command.clone();
+        let output = block_context.output.clone();
+        let exit_code = block_context.exit_code;
+        let pwd = block_context.pwd.clone();
+
+        let start_ts = Utc::now();
+        let trigger_for_request = trigger.clone();
+        let stream_handle = ctx.spawn(
+            request_suggestion(config, command, output, exit_code.value(), pwd),
+            move |me, result, ctx| {
+                if !me.is_suggestion_still_valid(ctx) {
+                    return;
+                }
+                let Ok(prompt) = result else {
+                    return;
+                };
+                let request_duration_ms = Utc::now()
+                    .signed_duration_since(start_ts)
+                    .num_milliseconds()
+                    .max(0) as u64;
+
+                ctx.emit(PassiveSuggestionsEvent::NewPromptSuggestion {
+                    prompt,
+                    label: None,
+                    request_duration_ms,
+                    trigger: Some(trigger_for_request),
+                    conversation_id: None,
+                    server_request_token: None,
+                });
+            },
+        );
+
+        let (cancellation_tx, _) = futures::channel::oneshot::channel();
+        self.latest_request = Some(Request {
+            conversation_id: AIConversationId::new(),
+            trigger: trigger.clone(),
+            start_ts: Utc::now(),
+            _stream_handle: stream_handle,
+            _cancellation_tx: cancellation_tx,
+        });
+    }
+
     /// Sends a MAA request to generate passive suggestions.
     ///
     /// As much as possible, this method avoids mutating the conversation data model;
@@ -465,6 +538,13 @@ impl PassiveSuggestionsModel {
         if is_oz_environment_startup_command {
             return;
         }
+
+        // If custom endpoint is configured, use it instead of Warp's cloud service.
+        if AISettings::as_ref(ctx).is_custom_endpoint_enabled(ctx) {
+            self.send_custom_endpoint_request(block_completed, ctx);
+            return;
+        }
+
         let is_prompt_suggestions_enabled = is_prompt_suggestions_enabled(ctx);
         let is_passive_code_diffs_enabled = is_passive_code_diffs_enabled(ctx);
         if !is_prompt_suggestions_enabled && !is_passive_code_diffs_enabled {

@@ -848,6 +848,35 @@ define_settings_group!(AISettings, settings: [
         description: "Controls whether the agent suggests rules to save after responses.",
         feature_flag: FeatureFlag::SuggestedRules,
     }
+    // Custom AI endpoint for passive suggestions.
+    custom_endpoint_enabled_internal: CustomEndpointEnabled {
+        type: bool,
+        default: false,
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
+        private: false,
+        toml_path: "agents.warp_agent.active_ai.custom_endpoint_enabled",
+        description: "Controls whether passive suggestions use a custom OpenAI-compatible endpoint instead of Warp's cloud service.",
+        feature_flag: FeatureFlag::CustomEndpointPassiveSuggestions,
+    }
+    custom_endpoint_base_url: CustomEndpointBaseUrl {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
+        private: false,
+        toml_path: "agents.warp_agent.active_ai.custom_endpoint_base_url",
+        description: "Base URL for the custom OpenAI-compatible endpoint (e.g. https://api.openai.com/v1).",
+    }
+    custom_endpoint_model: CustomEndpointModel {
+        type: String,
+        default: String::new(),
+        supported_platforms: SupportedPlatforms::ALL,
+        sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::No),
+        private: false,
+        toml_path: "agents.warp_agent.active_ai.custom_endpoint_model",
+        description: "Model name for the custom endpoint (e.g. gpt-4o, deepseek-chat).",
+    }
     // This field should not be referenced directly to lookup Voice AI enablement -- use the
     // `is_voice_input_enabled()` getter.
     voice_input_enabled_internal: VoiceInputEnabled {
@@ -1584,6 +1613,21 @@ impl AISettings {
 
     pub fn is_code_suggestions_enabled(&self, app: &warpui::AppContext) -> bool {
         self.is_active_ai_enabled(app) && *self.code_suggestions_enabled_internal
+    }
+
+    pub fn is_custom_endpoint_enabled(&self, app: &warpui::AppContext) -> bool {
+        self.is_active_ai_enabled(app)
+            && *self.custom_endpoint_enabled_internal
+            && !self.custom_endpoint_base_url.is_empty()
+            && !self.custom_endpoint_model.is_empty()
+    }
+
+    pub fn custom_endpoint_base_url(&self) -> &str {
+        &self.custom_endpoint_base_url
+    }
+
+    pub fn custom_endpoint_model(&self) -> &str {
+        &self.custom_endpoint_model
     }
 
     pub fn is_natural_language_autosuggestions_enabled(&self, app: &warpui::AppContext) -> bool {

@@ -858,6 +858,11 @@ pub enum FeatureFlag {
 
     /// Replaces the raw harness CLI command with a styled header showing CLI name + status icon.
     HarnessSessionHeader,
+
+    /// Enables using a custom OpenAI-compatible AI endpoint for passive suggestions,
+    /// instead of Warp's cloud service. When enabled, users can configure their own
+    /// base URL, API key, and model for command error analysis and suggestions.
+    CustomEndpointPassiveSuggestions,
 }
 
 static FLAG_STATES: [AtomicBool; cardinality::<FeatureFlag>()] =
@@ -944,6 +949,7 @@ pub const DOGFOOD_FLAGS: &[FeatureFlag] = &[
     FeatureFlag::HandoffCloudCloud,
     FeatureFlag::HarnessSessionHeader,
     FeatureFlag::SoloUserByok,
+    FeatureFlag::CustomEndpointPassiveSuggestions,
 ];
 
 /// Features enabled for feature preview build users (e.g.: Friends of Warp).
