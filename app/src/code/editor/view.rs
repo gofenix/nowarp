@@ -31,7 +31,7 @@ use crate::{
     editor::InteractionState,
     features::FeatureFlag,
     notebooks::editor::rich_text_styles,
-    settings::{AppEditorSettings, CodeSettings, CodeSettingsChangedEvent, FontSettings},
+    settings::{AppEditorSettings, CodeEditorLineNumberMode, CodeSettings, CodeSettingsChangedEvent, FontSettings},
     view_components::find::FindDirection,
 };
 use ai::diff_validation::DiffDelta;
@@ -81,33 +81,6 @@ use warpui::{
     SingletonEntity, View, ViewContext, ViewHandle, WeakViewHandle, WindowId,
 };
 
-use crate::appearance::Appearance;
-use crate::code::editor::comment_editor::{CommentEditor, CommentEditorEvent};
-use crate::code::editor::comments::PendingComment;
-use crate::code::editor::diff::DiffStatus;
-use crate::code::editor::element::{
-    AddAsContextButton, CommentButton, EditorWrapper, EditorWrapperStateHandle, GutterHoverTarget,
-    GutterRange, InnerEditor, LineNumberConfig, RevertHunkButton,
-};
-use crate::code::editor::find::view::{CodeEditorFind as Find, Event as FindViewEvent};
-use crate::code::editor::goto_line::view::{Event as GoToLineEvent, GoToLineView};
-use crate::code::editor::line::EditorLineLocation;
-use crate::code::editor::model::{
-    CodeEditorModel, CodeEditorModelEvent, HoverableLink, LineBound, StableEditorLine,
-};
-use crate::code::editor::nav_bar::{NavBar, NavBarBehavior, NavBarEvent};
-use crate::code::editor::scroll::{ScrollPosition, ScrollTrigger, ScrollWheelBehavior};
-use crate::code::editor::EditorReviewComment;
-use crate::code::{
-    DiffResult, NoopCommentEditorProvider, NoopFindReferencesCardProvider,
-    ShowCommentEditorProvider, ShowFindReferencesCardProvider,
-};
-use crate::code_review::comments::{CommentId, CommentOrigin};
-use crate::editor::InteractionState;
-use crate::features::FeatureFlag;
-use crate::notebooks::editor::rich_text_styles;
-use crate::settings::{AppEditorSettings, CodeEditorLineNumberMode, FontSettings};
-use crate::view_components::find::FindDirection;
 mod actions;
 pub use actions::init;
 pub(super) use actions::CodeEditorViewAction;

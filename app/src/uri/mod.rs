@@ -13,6 +13,7 @@ use anyhow::{anyhow, ensure, Result};
 use itertools::Itertools;
 use session_sharing_protocol::common::SessionId;
 use url::Url;
+use warp_util::file_type::is_markdown_file;
 use warp_util::path::LineAndColumnArg;
 use warpui::notification::UserNotification;
 use warpui::platform::TerminationMode;
@@ -1235,6 +1236,8 @@ enum OpenFileAction {
     /// Open a session at the parent directory and queue the file as the pending command,
     /// or just open a session at the directory path if `path` is a directory.
     ExecuteInSession,
+    /// Open as a notebook in Warp's code editor (markdown files).
+    Notebook,
 }
 
 /// Pure routing decision for `open_file`. Extracted so it can be unit-tested without
@@ -1256,7 +1259,6 @@ fn classify_open_file_action(path: &Path) -> OpenFileAction {
 #[cfg(feature = "local_fs")]
 fn can_open_file_editor_path(path: &Path) -> bool {
     path.is_file() && is_file_openable_in_warp(path).is_some()
-}
 }
 
 /// Handle an incoming `file://` URL.
