@@ -13,6 +13,7 @@ use siphasher::sip::SipHasher;
 use warp_core::ui::appearance::Appearance;
 use warp_core::ui::theme::color::internal_colors;
 use warp_core::ui::Icon;
+use warp_util::local_or_remote_path::LocalOrRemotePath;
 use warpui::prelude::MouseStateHandle;
 use warpui::{AppContext, Element, EventContext, SingletonEntity};
 
@@ -32,7 +33,7 @@ lazy_static! {
 fn try_insert_skill(
     dedup_map: &mut HashMap<u64, SkillDescriptor>,
     descriptor: SkillDescriptor,
-    dir_path: &Path,
+    dir_path: &LocalOrRemotePath,
     content: &str,
 ) {
     let mut hasher = *CONTENT_HASHER;
@@ -65,8 +66,8 @@ fn try_insert_skill(
 /// `dir_path` is the directory that owns the skill.
 #[cfg_attr(not(feature = "local_fs"), allow(dead_code))]
 pub(crate) fn unique_skills(
-    skill_paths: &[(PathBuf, PathBuf)],
-    skills_by_path: &HashMap<PathBuf, ParsedSkill>,
+    skill_paths: &[(LocalOrRemotePath, LocalOrRemotePath)],
+    skills_by_path: &HashMap<LocalOrRemotePath, ParsedSkill>,
 ) -> Vec<SkillDescriptor> {
     // hash(dir_path + content) → best descriptor seen so far
     let mut dedup_map: HashMap<u64, SkillDescriptor> = HashMap::new();
@@ -88,7 +89,7 @@ pub(crate) fn unique_skills(
 /// Returns the list of skills if they have changed since the last time we sent them to the server.
 /// Skills are always included except when the current list matches the last list sent.
 pub fn list_skills_if_changed(
-    working_directory: Option<&Path>,
+    working_directory: Option<&LocalOrRemotePath>,
     conversation_id: Option<AIConversationId>,
     app: &AppContext,
 ) -> Option<Vec<SkillDescriptor>> {
@@ -161,6 +162,23 @@ pub fn icon_override_for_skill_name(name: &str) -> Option<Icon> {
         "stripe-projects-cli" => Some(Icon::StripeLogo),
         _ => None,
     }
+}
+
+pub fn skill_path_from_location(location: &LocalOrRemotePath) -> Option<LocalOrRemotePath> {
+    let mut current = Some(location.clone());
+    while let Some(candidate_skill_dir) = current {
+        if let Some(provider_dir) = candidate_skill_dir.parent() {
+            if SKILL_PROVIDER_DEFINITIONS.iter().any(|definition| {
+                provider_dir
+                    .path_component()
+                    .ends_with(&definition.skills_path.to_string_lossy())
+            }) {
+                return Some(candidate_skill_dir.join("SKILL.md"));
+            }
+        }
+        current = candidate_skill_dir.parent();
+    }
+    None
 }
 
 pub fn skill_path_from_file_path(file_path: &Path) -> Option<PathBuf> {
