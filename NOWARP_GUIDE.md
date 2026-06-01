@@ -10,8 +10,9 @@ Nowarp 的目标不是保留 Warp 的完整产品面，而是做一个更直接�
 2. 终端优先，账号和增长流程靠后。
    用户应该能在未登录、未 onboarding、未配置 AI 的情况下直接进入可用终端。登录、团队、账单、推荐、feature promo、launch modal 这类流程不能挡住 terminal-first 路径。
 
-3. 不用的 AI feature 最终应该移除，不只是用开关隐藏。
-   现在很多 AI/agent/onboarding surface 通过 `suppress_automatic_*`、settings nav 过滤、feature flag 判断等方式隐藏。这是为了快速压低干扰和降低 merge 风险，不应长期成为产品结构。后续要按入口、状态、后台订阅、设置字段、测试逐步删除。
+3. **只做开关隐藏，不做代码删除**。
+   AI/agent/onboarding/account/billing/team/referral 等不在 nowarp 产品面内的能力，一律通过 `suppress_automatic_*`、settings nav 过滤、feature flag 判断、OR 短路等开关手段**保留上游代码**地隐藏，不删除、不重写上游实现。理由是 nowarp 需要持续从上游 master 合并，删/改上游逻辑会反复制造冲突。
+   "开关做法"的形态：新增一个 nowarp-only 的 `pub(crate) fn`（如 `bypass_auth_for_custom_endpoint`、`suppress_automatic_*`），恒返回 nowarp 偏置的值，在上游函数或调用点用 `||` / `if` 引入短路；merge 上游时只需把这一处短路删掉，上游逻辑原样保留。
 
 4. 可见入口比后台能力更重要。
    对用户不可见的功能不能通过恢复快照、搜索、快捷键、菜单、tooltip、warm welcome、one-time modal 等路径重新出现。隐藏入口时要同时处理恢复路径和默认落点。
@@ -60,30 +61,43 @@ Commit: `1e659b5 Customize Warp terminal experience`
 - profile 只支持 debug/direct execution，不支持 release build 或 macOS `--open_with_launchd`。
 - 这个能力用于快速验证不同本地状态，不应和产品默认行为混在一起。
 
-## 当前仍是“隐藏”的部分
+### 被动建议接自定义 AI 端点（不需登录）
 
-这些地方现在还不是彻底删除，只是把入口或自动触发压掉：
+Commit: pending
+
+沿用"开关"做法：在 `onboarding_suppression.rs` 加一个 nowarp-only 开关函数 `bypass_auth_for_custom_endpoint()`，在 `is_custom_endpoint_enabled` 的上游检查上做 OR 短路，让被动 prompt 建议走用户自己配的 OpenAI 兼容端点，不要求 Warp 登录。
+
+- 上游 `is_active_ai_enabled` 链路、`is_custom_endpoint_enabled` 的其它 `&&` 子句、调用点全部保留。merge 上游时只要把 `|| bypass_auth_for_custom_endpoint()` 删掉即可。
+- 只影响被动建议这一条路径（`passive_suggestions/maa.rs:540` 和 `legacy.rs:295`）。其它 AI 能力（autosuggest、code suggestions、natural language detection、agent mode 等）仍走 `is_active_ai_enabled`，未登录全 false，保持"静默其它"。
+- 用户在 `agents.warp_agent.active_ai` 下配 `custom_endpoint_enabled` / `custom_endpoint_base_url` / `custom_endpoint_model` / `custom_endpoint_api_key` 四个字段，端点协议见 `app/src/ai/custom_endpoint.rs`。
+- `app/src/ai/blocklist/passive_suggestions/maa.rs:188` 会把端点 HTTP 错误静默吞掉，调试时临时加 `tracing::warn!` 能看到 `CustomEndpointError`。
+
+## 持续被开关隐藏的部分
+
+按原则 3，以下 surface 在 nowarp 中**长期**只通过开关隐藏，上游代码完整保留（这是终态，不是过渡）：
 
 - `app/src/onboarding_suppression.rs` 统一返回 `true`。
 - Settings 的 AI、MCP、Billing、Teams、Code、Privacy、Referrals、WarpDrive、Warpify 等页面仍有 backing implementation，只是不在侧栏里出现。
 - AI assistant panel、agent settings、voice input、billing usage、teams workspace 等代码仍被编译和部分订阅，只是很多自动弹窗和提示不再触发。
 - 一些 setting 字段仍会存在，用于兼容旧配置、旧快照和上游代码路径。
+- 被动 prompt 建议的"登录要求"由 `bypass_auth_for_custom_endpoint` 开关绕掉（见下文"已完成更新"）。
 
-这部分要当作过渡状态：先保证用户看不到，再逐步让代码也不存在。
+**不要**把"隐藏入口"当成"将来再删代码"的过渡阶段。任何"后续清理上游实现"的工作都不在 nowarp 范围。
 
-## 后续移除 AI feature 的顺序
+## merge 上游时的开关维护
 
-1. 先删可见入口。
-   从 toolbar、settings sidebar、command palette、快捷键、菜单、tooltip、toast、modal、welcome/warm welcome 入口开始。标准是用户没有任何自然路径打开不用的 AI feature。
+新加一个 nowarp 开关时，按下面的形态落地，方便后续 merge：
 
-2. 再断自动触发和后台订阅。
-   删除或收敛 `AISettings` change subscription、one-time modal 检查、onboarding flow、warm welcome、voice/code feature popup、agent notification 这类自动行为。
+1. 在 `app/src/onboarding_suppression.rs`（或同类 nowarp-only 模块）新增一个 `pub(crate) fn xxx_yyy() -> bool`，恒返回 nowarp 偏置值，并写 doc comment 说明意图。
+2. 在上游函数或调用点用 `|| xxx_yyy()` / `if xxx_yyy() { ... }` 引入短路。**不要**改写上游已有的判断顺序、参数、签名。
+3. 在 `NOWARP_GUIDE.md` 的"已完成更新"加一节记录这个开关、影响面、merge 时如何回退。
+4. 如果是用户可见行为，配套在 `app/src/settings/ai_tests.rs`（或对应测试文件）加一个回归测试，断言开关开启时 nowarp 行为生效，防止 merge 上游后被悄悄改回去。
 
-3. 然后删状态和设置字段。
-   确认没有恢复、迁移、同步、测试依赖后，再删除对应 setting、snapshot 字段、private preference key、telemetry event 和默认值。
+merge 上游时如果上游改动了被开关短路的那段逻辑：
 
-4. 最后删 backing view/model/crate。
-   页面、panel、model、client、crate 只有在没有入口、没有订阅、没有持久化依赖后再删除。每次删除保持小步，方便和上游 master 合并。
+- 只在开关调用点处出现冲突 → 直接接受上游改动，开关代码原样保留。
+- 上游重写了被绕过的整个函数 → 按"开关做法"重新选一个稳定的 nowarp-only 短路点，迁移开关。
+- 上游把对应能力**整个删了**（极少发生）→ 可以考虑把对应的 nowarp 开关和短路点一起删掉，但仍要先确认没有其他被旁路的能力依赖它。
 
 ## 改动检查清单
 

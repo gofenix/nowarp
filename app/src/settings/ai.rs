@@ -1505,7 +1505,8 @@ impl AISettings {
     }
 
     pub fn is_custom_endpoint_enabled(&self, app: &warpui::AppContext) -> bool {
-        self.is_active_ai_enabled(app)
+        (self.is_active_ai_enabled(app)
+            || crate::onboarding_suppression::bypass_auth_for_custom_endpoint())
             && *self.custom_endpoint_enabled_internal
             && !self.custom_endpoint_base_url.is_empty()
             && !self.custom_endpoint_model.is_empty()

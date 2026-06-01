@@ -779,3 +779,47 @@ fn test_mark_quota_banner_as_dismissed() {
         });
     });
 }
+
+// --- nowarp: custom endpoint bypass regression tests ---
+
+#[test]
+fn custom_endpoint_enabled_when_bypass_and_fields_set() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        app.add_singleton_model(|_| AuthStateProvider::new_logged_out_for_test());
+        app.add_singleton_model(UserWorkspaces::default_mock);
+
+        AISettings::handle(&app).update(&mut app, |settings, ctx| {
+            report_if_error!(settings.custom_endpoint_enabled_internal.set_value(true, ctx));
+            report_if_error!(settings.custom_endpoint_base_url.set_value(
+                "https://example.com/v1".to_string(),
+                ctx,
+            ));
+            report_if_error!(settings.custom_endpoint_model.set_value(
+                "test-model".to_string(),
+                ctx,
+            ));
+            report_if_error!(settings.custom_endpoint_api_key.set_value(
+                "sk-test".to_string(),
+                ctx,
+            ));
+        });
+
+        AISettings::handle(&app).read(&app, |settings, ctx| {
+            assert!(settings.is_custom_endpoint_enabled(ctx));
+        });
+    });
+}
+
+#[test]
+fn custom_endpoint_disabled_when_fields_empty() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+        app.add_singleton_model(|_| AuthStateProvider::new_logged_out_for_test());
+        app.add_singleton_model(UserWorkspaces::default_mock);
+
+        AISettings::handle(&app).read(&app, |settings, ctx| {
+            assert!(!settings.is_custom_endpoint_enabled(ctx));
+        });
+    });
+}

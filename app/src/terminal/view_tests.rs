@@ -47,6 +47,7 @@ use crate::server::ids::{ClientId, SyncId};
 use crate::server::server_api::ai::SpawnAgentRequest;
 use crate::settings::import::model::ImportedConfigModel;
 use crate::settings::{AISettings, AppEditorSettings, WarpPromptSeparator};
+use crate::terminal::session_settings::CLIAgentToolbarChipSelection;
 use crate::terminal::alt_screen::should_intercept_mouse;
 use crate::terminal::block_list_element::{SnackbarPoint, SnackbarTranslationMode};
 use crate::terminal::block_list_viewport::{ClampingMode, ScrollLines};
@@ -5235,6 +5236,7 @@ fn enable_cli_agent_rich_input_auto_toggle(app: &mut App) {
             ctx,
         );
     });
+}
 
 /// Verifies that Ctrl-G closes CLI agent rich input when dispatched from the
 /// terminal context alone (no editor in the responder chain). Regression test

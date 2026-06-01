@@ -552,6 +552,7 @@ mod tests {
             is_oz_launch_modal_open: false,
             is_openwarp_launch_modal_open: false,
             is_hoa_onboarding_open: false,
+            is_orchestration_launch_modal_open: false,
             target_window_id: None,
         }
     }

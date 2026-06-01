@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use futures::channel::oneshot;
+use futures::executor::block_on;
 use vec1::vec1;
 use warp_editor::content::buffer::{InitialBufferState, SelectionOffsets};
 use warp_editor::multiline::MultilineString;
