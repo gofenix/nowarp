@@ -49,7 +49,7 @@ use crate::ai::agent::linearization::compute_task_depths;
 use crate::ai::agent::todos::AIAgentTodoList;
 use crate::ai::agent::{
     AIAgentOutputMessage, AIAgentOutputMessageType, AIIdentifiers, CancellationReason,
-    MessageToAIAgentOutputMessageError,
+    MessageToAIAgentOutputMessageError, SummarizationType,
 };
 use crate::ai::ambient_agents::AmbientAgentTaskId;
 use crate::ai::artifacts::Artifact;
@@ -72,6 +72,7 @@ use crate::terminal::model::block::{
     AgentInteractionMetadata, AgentViewVisibility, BlockId, SerializedAIMetadata, SerializedBlock,
 };
 use crate::ui_components::icons::Icon;
+use crate::workspaces::user_profiles::UserProfileWithUID;
 use crate::{BlocklistAIHistoryModel, GlobalResourceHandlesProvider};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -293,8 +294,8 @@ pub struct AIConversation {
     // is_remote_child, pinned) into a ChildAgentState sub-struct. See
     // PR #10777 review.
     /// Server-side identifier of the parent agent that spawned this child, if any.
-    /// In v1 this holds the parent's `server_conversation_token`; in v2 (OrchestrationV2)
-    /// it holds the parent's `run_id`. Persisted as `parent_agent_id` for serde compat.
+    /// For current orchestration, this holds the parent's `run_id`. Persisted as
+    /// `parent_agent_id` for serde compatibility with older conversation data.
     parent_agent_id: Option<String>,
     /// The display name for this agent (e.g. "Agent 1"), assigned by the orchestrator.
     agent_name: Option<String>,
@@ -648,12 +649,44 @@ impl AIConversation {
         self.conversation_usage_metadata.was_summarized
     }
 
+    /// Returns true if the conversation is currently being summarized.
+    pub fn is_summarizing(&self) -> bool {
+        let Some(exchange) = self.latest_visible_exchange() else {
+            return false;
+        };
+        let Some(output) = exchange.output_status.output() else {
+            return false;
+        };
+        output.get().messages.last().is_some_and(|m| {
+            matches!(
+                m.message,
+                AIAgentOutputMessageType::Summarization {
+                    finished_duration: None,
+                    summarization_type: SummarizationType::ConversationSummary,
+                    ..
+                }
+            )
+        })
+    }
+
     pub fn context_window_usage(&self) -> f32 {
         self.conversation_usage_metadata.context_window_usage
     }
 
+    /// Total credits spent in the conversation, including both LLM inference
+    /// and platform credits.
     pub fn credits_spent(&self) -> f32 {
-        (self.conversation_usage_metadata.credits_spent * 10.0).round() / 10.0
+        let total = self.conversation_usage_metadata.credits_spent
+            + self.conversation_usage_metadata.platform_credits_spent;
+        (total * 10.0).round() / 10.0
+    }
+
+    pub fn inference_credits_spent(&self) -> f32 {
+        self.conversation_usage_metadata.credits_spent
+    }
+
+    pub fn platform_credits_spent(&self) -> f32 {
+        self.conversation_usage_metadata.platform_credits_spent
     }
 
     /// Test-only helper that sets the conversation's credit total directly.
@@ -663,6 +696,7 @@ impl AIConversation {
     #[cfg(test)]
     pub(crate) fn set_credits_spent_for_test(&mut self, credits: f32) {
         self.conversation_usage_metadata.credits_spent = credits;
+        self.conversation_usage_metadata.platform_credits_spent = 0.0;
     }
 
     /// Test-only helper that simulates the root-task upgrade performed by the
@@ -920,17 +954,9 @@ impl AIConversation {
         self.task_id = Some(id);
     }
 
-    /// Returns the server-side agent identifier appropriate for the active
-    /// orchestration version: `task_id` (as string) under v2,
-    /// `server_conversation_token` under v1.
+    /// Returns the server-side agent identifier for orchestration.
     pub fn orchestration_agent_id(&self) -> Option<String> {
-        if FeatureFlag::OrchestrationV2.is_enabled() {
-            self.run_id()
-        } else {
-            self.server_conversation_token
-                .as_ref()
-                .map(|t| t.as_str().to_string())
-        }
+        self.run_id()
     }
 
     /// Updates the server conversation token for this conversation.
@@ -1429,10 +1455,8 @@ impl AIConversation {
         self.task_store.latest_skills()
     }
 
-    /// Get the auto-generated title of the given conversation
-    /// (falling back to the first query if the title is empty).
     /// Get the title of the given conversation.
-    /// Priority: auto-generated task description > initial query > fallback_display_title.
+    /// Priority: task description > initial query > fallback_display_title.
     pub fn title(&self) -> Option<String> {
         self.task_store
             .root_task()
@@ -1446,7 +1470,39 @@ impl AIConversation {
             .or_else(|| self.fallback_display_title.clone())
     }
 
-    /// Set a fallback title used when no task description or initial query exists.
+    /// Updates the conversation title and persists the conversation.
+    pub(crate) fn update_conversation_title(
+        &mut self,
+        title: String,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) {
+        let title_for_metadata = title.clone();
+        self.task_store
+            .modify_root_task(|root_task| root_task.update_description(title));
+        if let Some(metadata) = self.server_metadata.as_mut() {
+            metadata.title = title_for_metadata;
+        }
+        self.write_updated_conversation_state(ctx);
+    }
+
+    /// Restores a previous title snapshot and persists the conversation.
+    pub(crate) fn restore_conversation_title(
+        &mut self,
+        root_task_description: String,
+        server_metadata_title: Option<String>,
+        ctx: &mut ModelContext<BlocklistAIHistoryModel>,
+    ) {
+        self.task_store
+            .modify_root_task(|root_task| root_task.update_description(root_task_description));
+        if let (Some(metadata), Some(title)) =
+            (self.server_metadata.as_mut(), server_metadata_title)
+        {
+            metadata.title = title;
+        }
+        self.write_updated_conversation_state(ctx);
+    }
+
+    /// Sets a fallback title used when no task description or initial query exists.
     pub fn set_fallback_display_title(&mut self, title: String) {
         self.fallback_display_title = Some(title);
     }
@@ -1881,6 +1937,8 @@ impl AIConversation {
             self.conversation_usage_metadata.context_window_usage =
                 usage_metadata.context_window_usage;
             self.conversation_usage_metadata.credits_spent = usage_metadata.credits_spent;
+            self.conversation_usage_metadata.platform_credits_spent =
+                usage_metadata.platform_credits_spent;
             let llm_preferences = LLMPreferences::as_ref(ctx);
             self.conversation_usage_metadata.token_usage =
                 footer_model_token_usage(&usage_metadata, llm_preferences);
@@ -2076,8 +2134,10 @@ impl AIConversation {
         self.write_updated_conversation_state(ctx);
 
         // Don't mark the conversation as Cancelled if we're just cancelling to send a follow-up
-        // on the same conversation. The conversation will be immediately set back to InProgress.
-        if !reason.is_follow_up_for_same_conversation() {
+        // on the same conversation (it will be immediately set back to InProgress), or if the
+        // user manually took over the long-running command (the conversation remains in progress
+        // and will resume once the command finishes or control is handed back).
+        if !reason.should_preserve_in_progress_status() {
             self.update_status(ConversationStatus::Cancelled, terminal_view_id, ctx);
         }
         Ok(())
@@ -4035,6 +4095,8 @@ pub struct ServerAIConversationMetadata {
 
     /// Server metadata (revision, timestamps, creator info, etc.).
     pub metadata: crate::cloud_object::ServerMetadata,
+    /// Public profile for the conversation's creator, when available.
+    pub creator: Option<UserProfileWithUID>,
 
     /// Permissions for this conversation (space, guests, link sharing).
     pub permissions: crate::cloud_object::ServerPermissions,
@@ -4159,6 +4221,10 @@ pub enum ConversationStatus {
 
     /// The last turn of the agent resulted in an action whose execution is blocked by the user.
     Blocked { blocked_action: String },
+
+    /// Agent yielded via wait_for_events and is listening for inbound
+    /// input. Quiescent but not terminal.
+    WaitingForEvents,
 }
 
 impl std::fmt::Display for ConversationStatus {
@@ -4169,6 +4235,7 @@ impl std::fmt::Display for ConversationStatus {
             ConversationStatus::Error => write!(f, "Error"),
             ConversationStatus::Cancelled => write!(f, "Cancelled"),
             ConversationStatus::Blocked { .. } => write!(f, "Blocked"),
+            ConversationStatus::WaitingForEvents => write!(f, "Waiting"),
         }
     }
 }
@@ -4181,6 +4248,7 @@ impl ConversationStatus {
             ConversationStatus::Blocked { .. } => yellow_stop_icon(appearance),
             ConversationStatus::Error => failed_icon(appearance),
             ConversationStatus::Cancelled => gray_stop_icon(appearance),
+            ConversationStatus::WaitingForEvents => in_progress_icon(appearance),
         }
     }
 
@@ -4219,6 +4287,13 @@ impl ConversationStatus {
                     StatusColorStyle::Cloud => theme.ansi_bg_yellow(),
                 },
             ),
+            ConversationStatus::WaitingForEvents => (
+                Icon::ClockLoader,
+                match color_style {
+                    StatusColorStyle::Standard => theme.ansi_fg_magenta(),
+                    StatusColorStyle::Cloud => theme.ansi_bg_magenta(),
+                },
+            ),
         }
     }
 
@@ -4234,11 +4309,18 @@ impl ConversationStatus {
         matches!(self, ConversationStatus::Cancelled)
     }
 
+    /// True iff the run is finished and cannot resume on its own.
     pub fn is_done(&self) -> bool {
         matches!(
             self,
             ConversationStatus::Success | ConversationStatus::Error | ConversationStatus::Cancelled
         )
+    }
+
+    /// True iff the agent has yielded via `wait_for_events` and is listening
+    /// for inbound input.
+    pub fn is_waiting_for_events(&self) -> bool {
+        matches!(self, ConversationStatus::WaitingForEvents)
     }
 
     pub fn is_error(&self) -> bool {
