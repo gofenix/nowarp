@@ -8,6 +8,7 @@ use itertools::Itertools;
 use pathfinder_geometry::rect::RectF;
 use pathfinder_geometry::vector::Vector2F;
 use render::RenderState;
+use repo_metadata::entry::{DirectoryEntry, Entry};
 use repo_metadata::file_tree_store::{
     FileTreeDirectoryEntryState, FileTreeEntryState, FileTreeFileMetadata,
 };
@@ -980,7 +981,7 @@ impl FileTreeView {
                     self.root_directories.insert(
                         repo_path.clone(),
                         RootDirectory {
-                            entry: Self::create_empty_entry(repo_path),
+                            entry: Self::create_unloaded_entry(repo_path),
                             expanded_folders,
                             items: Vec::new(),
                             item_states: HashMap::new(),
@@ -997,6 +998,16 @@ impl FileTreeView {
         }
 
         if changed {
+            for remote_id in repos {
+                let repo_path = &remote_id.path;
+                if self
+                    .root_directories
+                    .get(repo_path)
+                    .is_some_and(|r| r.expanded_folders.contains(repo_path))
+                {
+                    self.ensure_loaded_path(repo_path, repo_path, ctx);
+                }
+            }
             self.rebuild_flattened_items();
             ctx.notify();
         }
@@ -1621,6 +1632,15 @@ impl FileTreeView {
 
     fn create_empty_entry(path: &StandardizedPath) -> FileTreeEntry {
         FileTreeEntry::new_for_directory(Arc::new(path.clone()))
+    }
+
+    fn create_unloaded_entry(path: &StandardizedPath) -> FileTreeEntry {
+        FileTreeEntry::from(Entry::Directory(DirectoryEntry {
+            path: path.clone(),
+            children: vec![],
+            ignored: false,
+            loaded: false,
+        }))
     }
 
     /// Rebuilds the flattened items list for a single root directory only,

@@ -17,6 +17,7 @@ use warpui::{App, ModelHandle};
 
 use super::{remote_server_unsupported_text, FileTreeView};
 use crate::auth::AuthStateProvider;
+use crate::remote_server::manager::RemoteServerManager;
 use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
 use crate::settings_view::keybindings::KeybindingChangedNotifier;
@@ -53,6 +54,7 @@ fn initialize_app(
 
     let detected_repositories = app.add_singleton_model(|_| DetectedRepositories::default());
     let repository_metadata_model = app.add_singleton_model(RepoMetadataModel::new);
+    app.add_singleton_model(RemoteServerManager::new);
 
     (detected_repositories, repository_metadata_model)
 }
@@ -606,6 +608,13 @@ fn remote_placeholder_root_renders_root_item_before_metadata_arrives() {
                 root_dir.items.len(),
                 1,
                 "remote placeholder root should render the root row instead of the skeleton"
+            );
+            assert!(
+                root_dir
+                    .entry
+                    .get(&remote_root)
+                    .is_some_and(|entry| !entry.loaded()),
+                "remote placeholder root must stay unloaded so expanding it requests metadata"
             );
         });
     });

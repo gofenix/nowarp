@@ -218,6 +218,11 @@ impl FileTreeEntry {
 
         // Ensure parent directories exist up to parent_path_to_replace
         self.ensure_parent_directories_exist(&update.parent_path_to_replace);
+        if let Some(FileTreeEntryState::Directory(parent)) =
+            self.get_mut(&update.parent_path_to_replace)
+        {
+            parent.loaded = true;
+        }
 
         // `subtree_metadata` is in depth-first pre-order: each directory
         // appears before its children.  A single pass is sufficient because

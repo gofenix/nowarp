@@ -52,6 +52,15 @@ fn dir(path: &str, children: Vec<Entry>) -> Entry {
     })
 }
 
+fn lazy_dir(path: &str, children: Vec<Entry>) -> Entry {
+    Entry::Directory(DirectoryEntry {
+        path: std_path(path),
+        children,
+        ignored: false,
+        loaded: false,
+    })
+}
+
 fn ignored_file(path: &str) -> Entry {
     Entry::File(FileMetadata {
         path: std_path(path),
@@ -431,6 +440,41 @@ fn apply_incomplete_update_missing_children_subtree() {
         tree.get(&std_path("/repo/src/components/button.rs"))
             .is_some(),
         "button.rs should now exist after followup"
+    );
+    assert!(
+        tree.get(&std_path("/repo/src/components"))
+            .is_some_and(|entry| entry.loaded()),
+        "components/ should be marked loaded after its lazy-load update is applied"
+    );
+}
+
+#[test]
+fn apply_empty_update_marks_parent_directory_loaded() {
+    let initial = dir("/repo", vec![lazy_dir("/repo/empty", vec![])]);
+    let mut tree = build_tree_from_entry(initial);
+
+    assert!(
+        tree.get(&std_path("/repo/empty"))
+            .is_some_and(|entry| !entry.loaded()),
+        "test setup should start with an unloaded directory"
+    );
+
+    let update = RepoMetadataUpdate {
+        repo_path: std_path("/repo"),
+        remove_entries: vec![],
+        update_entries: vec![FileTreeEntryUpdate {
+            parent_path_to_replace: std_path("/repo/empty"),
+            subtree_metadata: vec![],
+        }],
+        standing_results_delta: Default::default(),
+    };
+
+    tree.apply_repo_metadata_update(&update);
+
+    assert!(
+        tree.get(&std_path("/repo/empty"))
+            .is_some_and(|entry| entry.loaded()),
+        "an empty lazy-load response should still mark the directory loaded"
     );
 }
 

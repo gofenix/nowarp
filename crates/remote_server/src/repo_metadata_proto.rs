@@ -315,9 +315,6 @@ pub fn file_tree_children_to_proto_entries(
     dir_path: &StandardizedPath,
 ) -> Vec<proto::RepoMetadataEntryUpdate> {
     let children: Vec<_> = entry.child_paths(dir_path).cloned().collect();
-    if children.is_empty() {
-        return Vec::new();
-    }
 
     let mut subtree_metadata = Vec::with_capacity(children.len());
     for child_path in &children {
@@ -346,10 +343,6 @@ pub fn file_tree_children_to_proto_entries(
             }
             None => {}
         }
-    }
-
-    if subtree_metadata.is_empty() {
-        return Vec::new();
     }
 
     vec![proto::RepoMetadataEntryUpdate {
