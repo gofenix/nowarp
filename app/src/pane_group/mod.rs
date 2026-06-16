@@ -577,6 +577,7 @@ pub enum Event {
     /// A remote server resolved the repo root for a session in this pane group.
     RemoteRepoNavigated {
         remote_path: RemotePath,
+        terminal_id: EntityId,
     },
     /// Refresh the workspace-level active session state.
     ActiveSessionChanged,
@@ -5039,9 +5040,13 @@ impl PaneGroup {
             PaneEvent::RepoChanged => {
                 ctx.emit(Event::RepoChanged);
             }
-            PaneEvent::RemoteRepoNavigated { remote_path } => {
+            PaneEvent::RemoteRepoNavigated {
+                remote_path,
+                terminal_id,
+            } => {
                 ctx.emit(Event::RemoteRepoNavigated {
                     remote_path: remote_path.clone(),
+                    terminal_id: *terminal_id,
                 });
             }
         }
@@ -7552,7 +7557,9 @@ impl PaneGroup {
     ) -> impl Iterator<Item = (EntityId, Option<LocalOrRemotePath>)> + 'a {
         self.terminal_views(ctx).into_iter().map(|terminal_view| {
             let terminal_id = terminal_view.id();
-            let cwd = terminal_view.as_ref(ctx).pwd_as_local_or_remote(ctx);
+            let cwd = terminal_view
+                .as_ref(ctx)
+                .working_directory_for_project_explorer(ctx);
             (terminal_id, cwd)
         })
     }

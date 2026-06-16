@@ -1,8 +1,10 @@
-#[cfg(windows)]
-use super::WarpifySettings;
-
-use super::{EnableSshWarpification, SshExtensionInstallMode, SshExtensionInstallModeSetting};
+use super::{
+    EnableSshWarpification, SshExtensionInstallMode, SshExtensionInstallModeSetting,
+    WarpifySettings,
+};
+use crate::test_util::settings::initialize_settings_for_tests;
 use settings::Setting;
+use warpui::{App, SingletonEntity};
 
 #[test]
 fn ssh_warpification_is_disabled_by_default() {
@@ -10,15 +12,36 @@ fn ssh_warpification_is_disabled_by_default() {
 }
 
 #[test]
-fn ssh_extension_is_never_installed_by_default() {
+fn ssh_extension_is_always_installed_by_default() {
     assert_eq!(
         SshExtensionInstallMode::default(),
-        SshExtensionInstallMode::NeverInstall
+        SshExtensionInstallMode::AlwaysInstall
     );
     assert_eq!(
         SshExtensionInstallModeSetting::default_value(),
-        SshExtensionInstallMode::NeverInstall
+        SshExtensionInstallMode::AlwaysInstall
     );
+}
+
+#[test]
+fn ssh_extension_install_mode_can_be_explicitly_disabled() {
+    App::test((), |mut app| async move {
+        initialize_settings_for_tests(&mut app);
+
+        WarpifySettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .ssh_extension_install_mode
+                .set_value(SshExtensionInstallMode::NeverInstall, ctx)
+                .expect("setting should update");
+        });
+
+        WarpifySettings::handle(&app).read(&app, |settings, _ctx| {
+            assert_eq!(
+                *settings.ssh_extension_install_mode.value(),
+                SshExtensionInstallMode::NeverInstall
+            );
+        });
+    });
 }
 
 #[cfg(windows)]

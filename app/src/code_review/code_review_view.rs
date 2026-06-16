@@ -111,7 +111,9 @@ use crate::code_review::telemetry_event::{
     PaneStateChange,
 };
 use crate::code_review::DiffSetScope;
-use crate::coding_panel_enablement_state::CodingPanelEnablementState;
+use crate::coding_panel_enablement_state::{
+    CodingPanelEnablementState, RemoteSessionExplorerState,
+};
 use crate::editor::InteractionState;
 use crate::menu::{Event as MenuEvent, Menu, MenuItem, MenuItemFields};
 use crate::pane_group::focus_state::{PaneFocusHandle, PaneGroupFocusEvent};
@@ -2918,7 +2920,7 @@ impl CodeReviewView {
 
             let enablement = if is_remote {
                 CodingPanelEnablementState::RemoteSession {
-                    has_remote_server: false,
+                    explorer_state: RemoteSessionExplorerState::RemoteServerUnavailable,
                 }
             } else if is_wsl {
                 CodingPanelEnablementState::UnsupportedSession
@@ -2963,6 +2965,7 @@ impl CodeReviewView {
                 enablement:
                     CodingPanelEnablementState::Enabled
                     | CodingPanelEnablementState::PendingRemoteSession
+                    | CodingPanelEnablementState::PendingRemoteSessionUnavailable
                     | CodingPanelEnablementState::Disabled,
             }) => Self::render_not_repo_state(appearance, open_repo_button()),
         }

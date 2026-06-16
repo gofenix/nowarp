@@ -887,6 +887,85 @@ impl WorkingDirectoriesModel {
         }
     }
 
+    /// Registers a remote working directory for a pane group when the remote
+    /// server has resolved a navigation event before the normal active-session
+    /// refresh path has caught up.
+    pub fn register_remote_working_directory(
+        &mut self,
+        pane_group_id: EntityId,
+        remote_path: RemotePath,
+        terminal_id: EntityId,
+        ctx: &mut ModelContext<Self>,
+    ) {
+        let remote_key = LocalOrRemotePath::Remote(remote_path);
+        let repo_root = DetectedRepositories::as_ref(ctx).get_root_for_path(&remote_key);
+        let display_root = repo_root.clone().unwrap_or_else(|| remote_key.clone());
+
+        let old_directories: Vec<WorkingDirectory> = self
+            .least_recent_directories_for_pane_group(pane_group_id)
+            .map(|dirs| {
+                dirs.iter()
+                    .map(|lor| WorkingDirectory {
+                        path: lor.clone(),
+                        terminal_id: self.get_terminal_id_for_root_path(pane_group_id, lor),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let old_repos: Vec<LocalOrRemotePath> = self
+            .least_recent_repositories_for_pane_group(pane_group_id)
+            .map(|repos| repos.iter().cloned().collect())
+            .unwrap_or_default();
+
+        self.pane_groups
+            .entry(pane_group_id)
+            .or_default()
+            .insert(display_root.clone());
+        if repo_root.is_some() && display_root != remote_key {
+            if let Some(paths) = self.pane_groups.get_mut(&pane_group_id) {
+                paths.shift_remove(&remote_key);
+            }
+            if let Some(terminals) = self.directory_to_terminal.get_mut(&pane_group_id) {
+                terminals.remove(&remote_key);
+            }
+        }
+
+        self.directory_to_terminal
+            .entry(pane_group_id)
+            .or_default()
+            .insert(display_root.clone(), terminal_id);
+
+        let did_add_repo = repo_root
+            .map(|repo_root| self.repository_roots.insert(pane_group_id, repo_root))
+            .unwrap_or(false);
+
+        let new_directories: Vec<WorkingDirectory> = self
+            .pane_groups
+            .get(&pane_group_id)
+            .map(|dirs| {
+                dirs.iter()
+                    .map(|lor| WorkingDirectory {
+                        path: lor.clone(),
+                        terminal_id: self.get_terminal_id_for_root_path(pane_group_id, lor),
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let new_repos: Vec<LocalOrRemotePath> = self
+            .repository_roots
+            .get(pane_group_id)
+            .map(|repos| repos.iter().cloned().collect())
+            .unwrap_or_default();
+
+        if old_directories != new_directories {
+            self.emit_directories_changed(pane_group_id, ctx);
+        }
+
+        if did_add_repo && old_repos != new_repos {
+            self.emit_repositories_changed(pane_group_id, ctx);
+        }
+    }
+
     /// Get the repository root for a given path.
     fn get_repo_root_for_path(&self, path: &Path, ctx: &AppContext) -> Option<PathBuf> {
         DetectedRepositories::as_ref(ctx)

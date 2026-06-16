@@ -247,7 +247,9 @@ use crate::code_review::telemetry_event::CodeReviewPaneEntrypoint;
 #[cfg(feature = "local_fs")]
 use crate::code_review::CodeReviewTelemetryEvent;
 use crate::code_review::GlobalCodeReviewModel;
-use crate::coding_panel_enablement_state::CodingPanelEnablementState;
+use crate::coding_panel_enablement_state::{
+    CodingPanelEnablementState, RemoteSessionExplorerState,
+};
 use crate::context_chips::ChipRuntimeCapabilities;
 use crate::default_terminal::DefaultTerminal;
 use crate::drive::export::ExportManager;
@@ -339,7 +341,9 @@ use crate::settings_view::handoff_environment_creation_modal::{
 use crate::settings_view::keybindings::{KeybindingChangedEvent, KeybindingChangedNotifier};
 use crate::settings_view::mcp_servers_page::MCPServersSettingsPage;
 use crate::settings_view::pane_manager::SettingsPaneManager;
-use crate::settings_view::{default_settings_section, flags, SettingsSection, SettingsView, SettingsViewEvent};
+use crate::settings_view::{
+    default_settings_section, flags, SettingsSection, SettingsView, SettingsViewEvent,
+};
 #[cfg(all(target_os = "windows", feature = "local_tty"))]
 use crate::shell_indicator::ShellIndicatorType;
 use crate::tab::{
@@ -15841,7 +15845,19 @@ impl Workspace {
                 }
             }
             #[cfg(feature = "local_fs")]
-            pane_group::Event::RemoteRepoNavigated { remote_path } => {
+            pane_group::Event::RemoteRepoNavigated {
+                remote_path,
+                terminal_id,
+            } => {
+                self.working_directories_model.update(ctx, |model, ctx| {
+                    model.register_remote_working_directory(
+                        pane_group.id(),
+                        remote_path.clone(),
+                        *terminal_id,
+                        ctx,
+                    );
+                });
+
                 let remote_id = RemoteRepositoryIdentifier::new(
                     remote_path.host_id.clone(),
                     remote_path.path.clone(),
@@ -16739,6 +16755,8 @@ impl Workspace {
                 is_wsl_session,
                 session_id,
                 has_pending_ssh,
+                can_bootstrap_pending_ssh,
+                remote_server_setup_state,
             ) = terminal_handle.read(ctx, |terminal, ctx| {
                 let active_session_id = terminal.active_block_session_id();
                 let session =
@@ -16748,6 +16766,14 @@ impl Workspace {
                 let is_local = terminal.active_session_is_local(ctx);
                 let is_wsl_session = session.as_ref().map(|s| s.is_wsl()).unwrap_or(false);
                 let has_pending_ssh = terminal.has_pending_ssh_command();
+                let can_bootstrap_pending_ssh = terminal.can_bootstrap_pending_ssh_command();
+                let remote_server_setup_state = active_session_id.and_then(|id| {
+                    terminal
+                        .sessions_model()
+                        .as_ref(ctx)
+                        .remote_server_setup_state(id)
+                        .cloned()
+                });
                 (
                     session,
                     pwd_location,
@@ -16756,6 +16782,8 @@ impl Workspace {
                     is_wsl_session,
                     active_session_id,
                     has_pending_ssh,
+                    can_bootstrap_pending_ssh,
+                    remote_server_setup_state,
                 )
             });
 
@@ -16789,25 +16817,27 @@ impl Workspace {
                 && session_id.is_some_and(|sid| {
                     RemoteServerManager::as_ref(ctx).is_session_potentially_active(sid)
                 });
+            let remote_session_explorer_state =
+                RemoteSessionExplorerState::from_remote_server_setup_state(
+                    has_remote_server,
+                    remote_server_setup_state.as_ref(),
+                );
 
             let enablement = CodingPanelEnablementState::from_session_env(
                 file_tree_and_global_search_are_enabled,
                 is_remote,
                 is_unsupported_session,
-                has_remote_server,
+                remote_session_explorer_state,
             );
 
-            // When an SSH command is running (pending host set + block
-            // still long-running), the old local session is still active
-            // so the enablement computes as `Enabled`. Override to
-            // `PendingRemoteSession` so the file tree shows loading
-            // instead of the stale local tree.
-            let enablement =
-                if has_pending_ssh && matches!(enablement, CodingPanelEnablementState::Enabled) {
-                    CodingPanelEnablementState::PendingRemoteSession
-                } else {
-                    enablement
-                };
+            // A detected SSH command runs while the previous local session is
+            // still active. Keep the local tree hidden during that transition;
+            // show loading only when this terminal can bootstrap a
+            // remote-server-backed SSH session.
+            let enablement = enablement.with_pending_ssh(
+                has_pending_ssh,
+                can_bootstrap_pending_ssh && FeatureFlag::SshRemoteServer.is_enabled(),
+            );
 
             self.left_panel_view.update(ctx, |left_panel, ctx| {
                 left_panel.update_coding_panel_enablement(enablement, ctx);
@@ -16829,7 +16859,7 @@ impl Workspace {
                 file_tree_and_global_search_are_enabled,
                 false,
                 false,
-                false,
+                RemoteSessionExplorerState::RemoteServerUnavailable,
             );
 
             self.left_panel_view.update(ctx, |left_panel, ctx| {

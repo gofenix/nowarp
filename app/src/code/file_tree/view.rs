@@ -41,7 +41,9 @@ use warpui::{
 use crate::appearance::Appearance;
 use crate::code::active_file::{ActiveFileEvent, ActiveFileModel};
 use crate::code::buffer_location::LocalOrRemotePath;
-use crate::coding_panel_enablement_state::CodingPanelEnablementState;
+use crate::coding_panel_enablement_state::{
+    CodingPanelEnablementState, RemoteSessionExplorerState,
+};
 use crate::editor::{EditorOptions, EditorView, TextOptions};
 use crate::menu::{Menu, MenuItem, MenuItemFields};
 #[cfg(feature = "local_fs")]
@@ -60,15 +62,33 @@ use crate::util::openable_file_type::{
 use crate::util::openable_file_type::{
     resolve_file_target_to_open_in_warp, resolve_file_target_with_editor_choice,
 };
+use remote_server::setup::UnsupportedReason;
 
 mod editing;
 mod render;
 
 use crate::settings::{CodeSettings, CodeSettingsChangedEvent};
 
-const REMOTE_TEXT: &str = "The Project Explorer requires access to your local workspace, which isn’t supported in remote sessions.";
+const REMOTE_TEXT: &str = "The Project Explorer isn't available for this remote session.";
 const DISABLED_TEXT: &str = "The Project Explorer requires access to your local workspace. Open a new session or navigate to an active session to view.";
 const WSL_TEXT: &str = "The Project Explorer doesn't currently work in WSL.";
+
+fn remote_server_unsupported_text(reason: &UnsupportedReason) -> String {
+    match reason {
+        UnsupportedReason::GlibcTooOld { detected, required } => format!(
+            "The Project Explorer requires Warp's SSH extension, but this remote host can't run it: glibc {detected} is older than required {required}."
+        ),
+        UnsupportedReason::NonGlibc { name } => format!(
+            "The Project Explorer requires Warp's SSH extension, but this remote host can't run it: unsupported libc {name}."
+        ),
+        UnsupportedReason::UnsupportedOs { os } => format!(
+            "The Project Explorer requires Warp's SSH extension, but this remote host can't run it: unsupported operating system {os}."
+        ),
+        UnsupportedReason::UnsupportedArch { arch } => format!(
+            "The Project Explorer requires Warp's SSH extension, but this remote host can't run it: unsupported CPU architecture {arch}."
+        ),
+    }
+}
 
 /// Stable identifier for an item in the file tree.
 /// Includes both the root directory and the index within that root's flattened list.
@@ -955,11 +975,13 @@ impl FileTreeView {
                 if !self.root_directories.contains_key(repo_path) {
                     // Model data not available yet — create a placeholder.
                     let host_id = remote_id.host_id.clone();
+                    let mut expanded_folders = HashSet::new();
+                    expanded_folders.insert(repo_path.clone());
                     self.root_directories.insert(
                         repo_path.clone(),
                         RootDirectory {
                             entry: Self::create_empty_entry(repo_path),
-                            expanded_folders: HashSet::new(),
+                            expanded_folders,
                             items: Vec::new(),
                             item_states: HashMap::new(),
                             remote_host_id: Some(host_id),
@@ -2950,34 +2972,46 @@ impl View for FileTreeView {
 
     #[cfg(feature = "local_fs")]
     fn render(&self, app: &AppContext) -> Box<dyn Element> {
-        if matches!(self.enablement, CodingPanelEnablementState::Disabled) {
+        if matches!(&self.enablement, CodingPanelEnablementState::Disabled) {
             return self.render_error_state(DISABLED_TEXT.to_string(), app);
         }
 
         if matches!(
-            self.enablement,
+            &self.enablement,
             CodingPanelEnablementState::PendingRemoteSession
         ) {
             return self.render_loading_state(app);
         }
 
+        if matches!(
+            &self.enablement,
+            CodingPanelEnablementState::PendingRemoteSessionUnavailable
+        ) {
+            return self.render_error_state(REMOTE_TEXT.to_string(), app);
+        }
+
         if self.displayed_directories.is_empty() {
-            if let CodingPanelEnablementState::RemoteSession { has_remote_server } = self.enablement
-            {
+            if let CodingPanelEnablementState::RemoteSession { explorer_state } = &self.enablement {
                 // When the session has a remote server connection (Auto SSH
                 // Warpification / mode 1), show a loading state — the server
-                // may push repo metadata momentarily. For other SSH modes
-                // (tmux, subshell) no data will arrive, so show the disabled
-                // error instead.
-                return if has_remote_server {
-                    self.render_loading_state(app)
-                } else {
-                    self.render_error_state(REMOTE_TEXT.to_string(), app)
+                // may push repo metadata momentarily. For other SSH modes or
+                // unsupported hosts, no data will arrive, so show an error
+                // without falling back to the stale local tree.
+                return match explorer_state {
+                    RemoteSessionExplorerState::RemoteServerAvailable => {
+                        self.render_loading_state(app)
+                    }
+                    RemoteSessionExplorerState::RemoteServerUnavailable => {
+                        self.render_error_state(REMOTE_TEXT.to_string(), app)
+                    }
+                    RemoteSessionExplorerState::RemoteServerUnsupported { reason } => {
+                        self.render_error_state(remote_server_unsupported_text(reason), app)
+                    }
                 };
             }
 
             if matches!(
-                self.enablement,
+                &self.enablement,
                 CodingPanelEnablementState::UnsupportedSession
             ) {
                 return self.render_error_state(WSL_TEXT.to_string(), app);

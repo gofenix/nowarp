@@ -10,6 +10,7 @@ use chrono::Local;
 use parking_lot::FairMutex;
 use session_sharing_protocol::common::CLIAgentSessionState;
 use warp_cli::agent::Harness;
+use warp_core::HostId;
 use warp_terminal::model::escape_sequences::{BRACKETED_PASTE_END, BRACKETED_PASTE_START, C0};
 use warpui::notification::UserNotification;
 use warpui::platform::WindowStyle;
@@ -46,8 +47,7 @@ use crate::pane_group::{BackingView, TerminalPaneId};
 use crate::server::ids::{ClientId, SyncId};
 use crate::server::server_api::ai::SpawnAgentRequest;
 use crate::settings::import::model::ImportedConfigModel;
-use crate::settings::{AISettings, AppEditorSettings, WarpPromptSeparator};
-use crate::terminal::session_settings::CLIAgentToolbarChipSelection;
+use crate::settings::{AISettings, AppEditorSettings, SshSettings, WarpPromptSeparator};
 use crate::terminal::alt_screen::should_intercept_mouse;
 use crate::terminal::block_list_element::{SnackbarPoint, SnackbarTranslationMode};
 use crate::terminal::block_list_viewport::{ClampingMode, ScrollLines};
@@ -65,6 +65,7 @@ use crate::terminal::model::blocks::{insert_block, TotalIndex};
 use crate::terminal::model::grid::Dimensions as _;
 use crate::terminal::model::terminal_model::WithinBlock;
 use crate::terminal::session_settings::AgentToolbarChipSelection;
+use crate::terminal::session_settings::CLIAgentToolbarChipSelection;
 use crate::terminal::shared_session::shared_handlers::{
     apply_cli_agent_state_update, RemoteUpdateGuard,
 };
@@ -140,6 +141,178 @@ fn focus_reporting_writes_focus_events_in_normal_screen() {
             ]
         );
     })
+}
+
+#[test]
+fn initial_bootstrapped_metadata_with_cwd_runs_repo_detection() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let repo_path = std::fs::canonicalize(temp_dir.path()).expect("canonical repo path");
+        std::fs::create_dir_all(repo_path.join(".git")).expect("git dir");
+        std::fs::write(repo_path.join(".git/HEAD"), "ref: refs/heads/main\n").expect("git HEAD");
+        let cwd = repo_path.to_string_lossy().into_owned();
+        let session_id = SessionId::from(42);
+
+        terminal.update(&mut app, |view, ctx| {
+            view.sessions_model().update(ctx, |sessions, _ctx| {
+                sessions.register_session_for_test(
+                    crate::terminal::model::session::SessionInfo::new_for_test()
+                        .with_id(session_id)
+                        .with_session_type(BootstrapSessionType::Local),
+                );
+            });
+
+            assert!(
+                view.active_block_metadata.is_none(),
+                "this regression covers the first metadata update for a session"
+            );
+
+            view.apply_block_metadata_update(
+                &BlockMetadata::new(Some(session_id), Some(cwd)),
+                false,
+                true,
+                BlockMetadataUpdateSource::Precmd,
+                ctx,
+            );
+        });
+
+        assert_eventually!(
+            terminal.read(&app, |view, _ctx| {
+                view.current_repo_path == Some(LocalOrRemotePath::Local(repo_path.clone()))
+            }),
+            "first bootstrapped CWD metadata should trigger repo detection"
+        );
+    })
+}
+
+#[test]
+fn remote_cwd_metadata_before_post_bootstrap_refreshes_app_state() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        let session_id = SessionId::from(43);
+        let host_id = HostId::new("remote-host".to_string());
+        let app_state_changed_count = Rc::new(RefCell::new(0));
+        let count = app_state_changed_count.clone();
+
+        app.update(|ctx| {
+            ctx.subscribe_to_view(&terminal, move |_, event, _| {
+                if matches!(event, Event::AppStateChanged) {
+                    *count.borrow_mut() += 1;
+                }
+            });
+        });
+
+        terminal.update(&mut app, |view, ctx| {
+            view.sessions_model().update(ctx, |sessions, _ctx| {
+                sessions.register_session_for_test(
+                    crate::terminal::model::session::SessionInfo::new_for_test()
+                        .with_id(session_id)
+                        .with_session_type(BootstrapSessionType::WarpifiedRemote),
+                );
+                sessions
+                    .get(session_id)
+                    .expect("registered session")
+                    .set_remote_host_id(Some(host_id.clone()));
+            });
+
+            view.apply_block_metadata_update(
+                &BlockMetadata::new(Some(session_id), Some("/home/tiger".to_string())),
+                false,
+                false,
+                BlockMetadataUpdateSource::Precmd,
+                ctx,
+            );
+        });
+
+        assert_eq!(
+            *app_state_changed_count.borrow(),
+            1,
+            "remote CWD metadata must refresh workspace state even before PostBootstrapPrecmd"
+        );
+        terminal.read(&app, |view, ctx| {
+            assert_eq!(
+                view.pwd_as_local_or_remote(ctx),
+                Some(LocalOrRemotePath::Remote(RemotePath::new(
+                    host_id,
+                    StandardizedPath::try_new("/home/tiger").expect("standardized remote path"),
+                )))
+            );
+        });
+    })
+}
+
+#[test]
+fn terminal_captures_ssh_wrapper_setting_at_creation() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+
+        let terminal_with_default = add_window_with_terminal(&mut app, None);
+        assert!(
+            terminal_with_default.read(&app, |view, _ctx| view.can_bootstrap_pending_ssh_command())
+        );
+
+        SshSettings::handle(&app).update(&mut app, |settings, ctx| {
+            settings
+                .enable_ssh_wrapper
+                .set_value(false, ctx)
+                .expect("setting should update");
+        });
+
+        let terminal_with_wrapper_disabled = add_window_with_terminal(&mut app, None);
+        assert!(!terminal_with_wrapper_disabled
+            .read(&app, |view, _ctx| view.can_bootstrap_pending_ssh_command()));
+        assert!(
+            terminal_with_default.read(&app, |view, _ctx| view.can_bootstrap_pending_ssh_command())
+        );
+    });
+}
+
+#[test]
+fn project_explorer_working_directory_is_hidden_while_ssh_is_pending() {
+    App::test((), |mut app| async move {
+        initialize_app_for_terminal_view(&mut app);
+        let terminal = add_window_with_terminal(&mut app, None);
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let cwd = std::fs::canonicalize(temp_dir.path())
+            .expect("canonical cwd")
+            .to_string_lossy()
+            .into_owned();
+        let session_id = SessionId::from(44);
+
+        terminal.update(&mut app, |view, ctx| {
+            view.sessions_model().update(ctx, |sessions, _ctx| {
+                sessions.register_session_for_test(
+                    crate::terminal::model::session::SessionInfo::new_for_test()
+                        .with_id(session_id)
+                        .with_session_type(BootstrapSessionType::Local),
+                );
+            });
+            view.apply_block_metadata_update(
+                &BlockMetadata::new(Some(session_id), Some(cwd)),
+                false,
+                true,
+                BlockMetadataUpdateSource::Precmd,
+                ctx,
+            );
+
+            let local_pwd = view.pwd_as_local_or_remote(ctx);
+            assert!(matches!(local_pwd, Some(LocalOrRemotePath::Local(_))));
+
+            view.model
+                .lock()
+                .simulate_long_running_block("ssh example-host", "");
+            view.warpify_state.set_pending_ssh_host(
+                "ssh example-host".to_string(),
+                Some("example-host".to_string()),
+            );
+
+            assert!(view.has_pending_ssh_command());
+            assert_eq!(view.working_directory_for_project_explorer(ctx), None);
+        });
+    });
 }
 
 fn input_operations_for_buffer_content(app: &mut App, content: &str) -> Vec<CrdtOperation> {

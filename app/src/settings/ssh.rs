@@ -7,7 +7,7 @@ define_settings_group!(SshSettings,
         // backwards compatibility with existing user settings; do not rename them.
         enable_ssh_wrapper: EnableSshWrapper {
             type: bool,
-            default: false,
+            default: true,
             supported_platforms: SupportedPlatforms::ALL,
             sync_to_cloud: SyncToCloud::Globally(RespectUserSyncSetting::Yes),
             private: false,

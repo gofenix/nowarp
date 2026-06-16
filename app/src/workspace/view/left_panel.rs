@@ -668,6 +668,7 @@ impl LeftPanelView {
         #[cfg(feature = "local_fs")]
         {
             if let Some(file_tree_view) = self.active_file_tree_view(ctx) {
+                let enablement = enablement.clone();
                 file_tree_view.update(ctx, |view, ctx| {
                     view.set_enablement_state(enablement, ctx);
                 });

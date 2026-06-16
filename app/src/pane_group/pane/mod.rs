@@ -1113,6 +1113,7 @@ pub enum PaneEvent {
     /// A remote server resolved the repo root for a session in this pane.
     RemoteRepoNavigated {
         remote_path: RemotePath,
+        terminal_id: EntityId,
     },
     /// Split the current pane into two. If `initial_query` is `Some` fill the new pane's input with
     /// its value.

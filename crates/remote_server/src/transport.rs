@@ -220,10 +220,13 @@ pub trait RemoteTransport: Send + Sync + std::fmt::Debug {
     /// over the existing connection and parses its structured stdout into
     /// a [`PreinstallCheckResult`].
     ///
-    /// This runs **before** any user-visible install affordance (the
-    /// install choice block, auto-install, auto-update, or connect) and
-    /// is the gate that decides whether to proceed with the install
-    /// pipeline or fall back to the wrapper-only SSH flow.
+    /// This runs before any user-visible install affordance (the install
+    /// choice block, auto-install, or auto-update) and is the gate that
+    /// decides whether to proceed with installing the prebuilt artifact or
+    /// fall back to the wrapper-only SSH flow. A binary that is already
+    /// installed and passes [`RemoteTransport::check_binary`] is accepted
+    /// before this gate so locally deployed compatible builds can run on
+    /// hosts that the CDN artifact does not support.
     ///
     /// Returns `Ok(_)` on success (including when the script reported
     /// `Unknown` — that's a parser-level outcome, not a transport-level

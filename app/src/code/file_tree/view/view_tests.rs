@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use remote_server::setup::{GlibcVersion, UnsupportedReason};
 use repo_metadata::entry::{DirectoryEntry, Entry, FileMetadata};
 use repo_metadata::file_tree_store::FileTreeState;
 use repo_metadata::local_model::IndexedRepoState;
@@ -8,10 +9,13 @@ use repo_metadata::watcher::DirectoryWatcher;
 use repo_metadata::RepoMetadataModel;
 use virtual_fs::{Stub, VirtualFS};
 use warp_core::ui::appearance::Appearance;
+use warp_core::HostId;
+use warp_util::remote_path::RemotePath;
+use warp_util::standardized_path::StandardizedPath;
 use warpui::platform::WindowStyle;
 use warpui::{App, ModelHandle};
 
-use super::FileTreeView;
+use super::{remote_server_unsupported_text, FileTreeView};
 use crate::auth::AuthStateProvider;
 use crate::server::server_api::team::MockTeamClient;
 use crate::server::server_api::workspace::MockWorkspaceClient;
@@ -51,6 +55,17 @@ fn initialize_app(
     let repository_metadata_model = app.add_singleton_model(RepoMetadataModel::new);
 
     (detected_repositories, repository_metadata_model)
+}
+
+#[test]
+fn remote_server_unsupported_text_includes_glibc_versions() {
+    let text = remote_server_unsupported_text(&UnsupportedReason::GlibcTooOld {
+        detected: GlibcVersion::new(2, 28),
+        required: GlibcVersion::new(2, 31),
+    });
+
+    assert!(text.contains("glibc 2.28"));
+    assert!(text.contains("required 2.31"));
 }
 
 fn build_repo_state(repo_root: &std::path::Path) -> FileTreeState {
@@ -560,6 +575,38 @@ fn pending_repository_root_does_not_register_lazy_loaded_path() {
                     Some(IndexedRepoState::Pending(_))
                 ));
             });
+        });
+    });
+}
+
+#[test]
+fn remote_placeholder_root_renders_root_item_before_metadata_arrives() {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+
+        let (_, file_tree_view) = app.add_window(WindowStyle::NotStealFocus, FileTreeView::new);
+        let host_id = HostId::new("test-host".to_string());
+        let remote_root = StandardizedPath::try_new("/home/user").expect("remote root");
+        let remote_id = RemotePath::new(host_id, remote_root.clone());
+
+        file_tree_view.update(&mut app, |view, ctx| {
+            view.set_remote_root_directories(std::slice::from_ref(&remote_id), ctx);
+        });
+
+        file_tree_view.read(&app, |view, _ctx| {
+            let root_dir = view
+                .root_directories
+                .get(&remote_root)
+                .expect("remote placeholder root is registered");
+            assert!(
+                root_dir.expanded_folders.contains(&remote_root),
+                "remote placeholder root should be expanded so it can render immediately"
+            );
+            assert_eq!(
+                root_dir.items.len(),
+                1,
+                "remote placeholder root should render the root row instead of the skeleton"
+            );
         });
     });
 }

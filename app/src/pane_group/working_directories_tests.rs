@@ -6,6 +6,9 @@ use std::path::PathBuf;
 
 use repo_metadata::repositories::DetectedRepositories;
 use repo_metadata::watcher::DirectoryWatcher;
+use warp_core::HostId;
+use warp_util::remote_path::RemotePath;
+use warp_util::standardized_path::StandardizedPath;
 use warpui::{App, EntityId};
 
 use super::PaneGroupRepositoryRoots;
@@ -18,6 +21,13 @@ fn local(path: &std::path::Path) -> LocalOrRemotePath {
 
 fn local_str(path: &str) -> LocalOrRemotePath {
     LocalOrRemotePath::Local(PathBuf::from(path))
+}
+
+fn remote(host_id: &HostId, path: &str) -> LocalOrRemotePath {
+    LocalOrRemotePath::Remote(RemotePath::new(
+        host_id.clone(),
+        StandardizedPath::try_new(path).expect("absolute remote path"),
+    ))
 }
 
 #[test]
@@ -125,6 +135,214 @@ fn refresh_working_directories_preserves_non_repo_paths_and_dedupes() {
             HashSet::from_iter([local(&canonical_1), local(&canonical_2)]),
             "should preserve non-repo roots and dedupe exact paths"
         );
+    });
+}
+
+#[test]
+fn remote_navigation_registers_working_directory_without_file_tree_view() {
+    App::test((), |mut app| async move {
+        let detected_repos_handle = app.add_singleton_model(|_| DetectedRepositories::default());
+        let host_id = HostId::new("test-host".to_string());
+        let repo_root = RemotePath::new(
+            host_id.clone(),
+            StandardizedPath::try_new("/home/user/repo").expect("remote repo root"),
+        );
+        detected_repos_handle.update(&mut app, |repos, _ctx| {
+            repos.register_remote_repo_root(repo_root.clone());
+        });
+
+        let pane_group_id = EntityId::new();
+        let terminal_id = EntityId::new();
+        let navigated_path = RemotePath::new(
+            host_id.clone(),
+            StandardizedPath::try_new("/home/user/repo/src").expect("remote cwd"),
+        );
+
+        let working_directories_handle = app.add_model(|_| WorkingDirectoriesModel::new());
+        let directories = working_directories_handle.update(&mut app, |model, ctx| {
+            model.register_remote_working_directory(
+                pane_group_id,
+                navigated_path,
+                terminal_id,
+                ctx,
+            );
+
+            model
+                .most_recent_directories_for_pane_group(pane_group_id)
+                .expect("pane group exists")
+                .collect::<Vec<_>>()
+        });
+        let repositories = working_directories_handle.update(&mut app, |model, _ctx| {
+            model
+                .most_recent_repositories_for_pane_group(pane_group_id)
+                .expect("pane group exists")
+                .collect::<Vec<_>>()
+        });
+
+        assert_eq!(directories.len(), 1);
+        assert_eq!(directories[0].path, remote(&host_id, "/home/user/repo"));
+        assert_eq!(directories[0].terminal_id, Some(terminal_id));
+        assert_eq!(repositories, vec![remote(&host_id, "/home/user/repo")]);
+    });
+}
+
+#[test]
+fn remote_navigation_without_detected_repo_does_not_register_repository() {
+    App::test((), |mut app| async move {
+        app.add_singleton_model(|_| DetectedRepositories::default());
+        let host_id = HostId::new("test-host".to_string());
+        let pane_group_id = EntityId::new();
+        let terminal_id = EntityId::new();
+        let remote_cwd = RemotePath::new(
+            host_id.clone(),
+            StandardizedPath::try_new("/home/user/not-a-repo").expect("remote cwd"),
+        );
+
+        let working_directories_handle = app.add_model(|_| WorkingDirectoriesModel::new());
+        let directories = working_directories_handle.update(&mut app, |model, ctx| {
+            model.register_remote_working_directory(pane_group_id, remote_cwd, terminal_id, ctx);
+
+            model
+                .most_recent_directories_for_pane_group(pane_group_id)
+                .expect("pane group exists")
+                .collect::<Vec<_>>()
+        });
+        let repositories = working_directories_handle.update(&mut app, |model, _ctx| {
+            model
+                .most_recent_repositories_for_pane_group(pane_group_id)
+                .map(|repos| repos.collect::<Vec<_>>())
+        });
+
+        assert_eq!(directories.len(), 1);
+        assert_eq!(
+            directories[0].path,
+            remote(&host_id, "/home/user/not-a-repo")
+        );
+        assert_eq!(directories[0].terminal_id, Some(terminal_id));
+        assert_eq!(repositories, None);
+    });
+}
+
+#[test]
+fn remote_navigation_preserves_existing_remote_roots_in_pane_group() {
+    App::test((), |mut app| async move {
+        let detected_repos_handle = app.add_singleton_model(|_| DetectedRepositories::default());
+        let host_id = HostId::new("test-host".to_string());
+        let repo_a = RemotePath::new(
+            host_id.clone(),
+            StandardizedPath::try_new("/home/user/repo-a").expect("remote repo root"),
+        );
+        let repo_b = RemotePath::new(
+            host_id.clone(),
+            StandardizedPath::try_new("/home/user/repo-b").expect("remote repo root"),
+        );
+        detected_repos_handle.update(&mut app, |repos, _ctx| {
+            repos.register_remote_repo_root(repo_a.clone());
+            repos.register_remote_repo_root(repo_b.clone());
+        });
+
+        let pane_group_id = EntityId::new();
+        let terminal_a = EntityId::new();
+        let terminal_b = EntityId::new();
+        let working_directories_handle = app.add_model(|_| WorkingDirectoriesModel::new());
+
+        working_directories_handle.update(&mut app, |model, ctx| {
+            model.register_remote_working_directory(pane_group_id, repo_a, terminal_a, ctx);
+            model.register_remote_working_directory(pane_group_id, repo_b, terminal_b, ctx);
+        });
+
+        let directories: HashSet<LocalOrRemotePath> =
+            working_directories_handle.update(&mut app, |model, _ctx| {
+                model
+                    .most_recent_directories_for_pane_group(pane_group_id)
+                    .expect("pane group exists")
+                    .map(|dir| dir.path)
+                    .collect()
+            });
+        let repositories: HashSet<LocalOrRemotePath> =
+            working_directories_handle.update(&mut app, |model, _ctx| {
+                model
+                    .most_recent_repositories_for_pane_group(pane_group_id)
+                    .expect("pane group exists")
+                    .collect()
+            });
+
+        let expected = HashSet::from_iter([
+            remote(&host_id, "/home/user/repo-a"),
+            remote(&host_id, "/home/user/repo-b"),
+        ]);
+        assert_eq!(directories, expected);
+        assert_eq!(repositories, expected);
+
+        working_directories_handle.update(&mut app, |model, _ctx| {
+            assert_eq!(
+                model.get_terminal_id_for_root_path(
+                    pane_group_id,
+                    &remote(&host_id, "/home/user/repo-a"),
+                ),
+                Some(terminal_a),
+            );
+            assert_eq!(
+                model.get_terminal_id_for_root_path(
+                    pane_group_id,
+                    &remote(&host_id, "/home/user/repo-b"),
+                ),
+                Some(terminal_b),
+            );
+        });
+    });
+}
+
+#[test]
+fn remote_navigation_replaces_prior_cwd_with_detected_repo_root() {
+    App::test((), |mut app| async move {
+        let detected_repos_handle = app.add_singleton_model(|_| DetectedRepositories::default());
+        let host_id = HostId::new("test-host".to_string());
+        let pane_group_id = EntityId::new();
+        let terminal_id = EntityId::new();
+        let repo_root = RemotePath::new(
+            host_id.clone(),
+            StandardizedPath::try_new("/home/user/repo").expect("remote repo root"),
+        );
+        let remote_cwd = RemotePath::new(
+            host_id.clone(),
+            StandardizedPath::try_new("/home/user/repo/src").expect("remote cwd"),
+        );
+
+        let working_directories_handle = app.add_model(|_| WorkingDirectoriesModel::new());
+        working_directories_handle.update(&mut app, |model, ctx| {
+            model.register_remote_working_directory(
+                pane_group_id,
+                remote_cwd.clone(),
+                terminal_id,
+                ctx,
+            );
+        });
+
+        detected_repos_handle.update(&mut app, |repos, _ctx| {
+            repos.register_remote_repo_root(repo_root);
+        });
+        working_directories_handle.update(&mut app, |model, ctx| {
+            model.register_remote_working_directory(pane_group_id, remote_cwd, terminal_id, ctx);
+        });
+
+        let directories = working_directories_handle.update(&mut app, |model, _ctx| {
+            model
+                .most_recent_directories_for_pane_group(pane_group_id)
+                .expect("pane group exists")
+                .collect::<Vec<_>>()
+        });
+        let repositories = working_directories_handle.update(&mut app, |model, _ctx| {
+            model
+                .most_recent_repositories_for_pane_group(pane_group_id)
+                .expect("pane group exists")
+                .collect::<Vec<_>>()
+        });
+
+        assert_eq!(directories.len(), 1);
+        assert_eq!(directories[0].path, remote(&host_id, "/home/user/repo"));
+        assert_eq!(directories[0].terminal_id, Some(terminal_id));
+        assert_eq!(repositories, vec![remote(&host_id, "/home/user/repo")]);
     });
 }
 

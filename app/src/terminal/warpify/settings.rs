@@ -104,9 +104,9 @@ pub enum SshExtensionInstallMode {
     /// Always prompt the user before installing.
     AlwaysAsk,
     /// Automatically install and connect without prompting.
+    #[default]
     AlwaysInstall,
     /// Never check, install, update, or connect the SSH extension; continue with the normal SSH session.
-    #[default]
     NeverInstall,
 }
 

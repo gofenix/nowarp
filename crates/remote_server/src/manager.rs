@@ -266,6 +266,15 @@ fn version_is_compatible(client: Option<&str>, server: &str) -> bool {
     }
 }
 
+/// Whether the preinstall gate still needs to run after checking the
+/// expected remote-server binary path. A working installed binary wins
+/// because it may have been deployed out-of-band with a more compatible
+/// libc target than the CDN artifact.
+#[cfg(not(target_family = "wasm"))]
+fn should_run_preinstall_after_binary_check(check_result: &Result<bool, Error>) -> bool {
+    !matches!(check_result, Ok(true))
+}
+
 #[cfg(test)]
 #[path = "manager_tests.rs"]
 mod tests;
@@ -1718,12 +1727,12 @@ impl RemoteServerManager {
             let spawner = self.spawner.clone();
             ctx.background_executor()
                 .spawn(async move {
-                    // Run platform detection and the preinstall gate before
-                    // any binary, update, prompt, or install decision. The
-                    // later binary and old-binary checks run sequentially on
-                    // supported hosts so each step reuses the same SSH
-                    // ControlMaster connection instead of opening parallel
-                    // channels.
+                    // Run platform detection before any binary, update,
+                    // prompt, or install decision. If the expected binary is
+                    // already installed and executable, accept it before
+                    // applying the preinstall gate: local development can
+                    // deploy a compatible static binary to hosts whose libc
+                    // cannot run the CDN artifact.
                     let platform_result = transport.detect_platform().await;
                     let platform = match platform_result {
                         Ok(p) => Some(p),
@@ -1747,25 +1756,37 @@ impl RemoteServerManager {
                             None
                         }
                     };
-                    // Run the preinstall check after platform detection
-                    // resolves, only on Linux. macOS hosts pay zero extra
-                    // round-trips. SSH-level failures are logged and
-                    // surfaced as `None`, which the controller treats as
-                    // inconclusive (fail open).
-                    let preinstall = match &platform {
-                        Some(p) if matches!(p.os, RemoteOs::Linux) => {
-                            match transport.run_preinstall_check().await {
-                                Ok(r) => Some(r),
-                                Err(e) => {
-                                    log::warn!(
-                                        "Remote server preinstall check failed: session={session_id:?} error={e}"
-                                    );
-                                    None
+
+                    let check_result = transport.check_binary().await;
+                    if !should_run_preinstall_after_binary_check(&check_result) {
+                        let _ = spawner
+                            .spawn(move |me, ctx| {
+                                if let Some(p) = &platform {
+                                    me.session_platforms.insert(session_id, p.clone());
                                 }
-                            }
-                        }
-                        _ => None,
-                    };
+                                ctx.emit(RemoteServerManagerEvent::BinaryCheckComplete {
+                                    session_id,
+                                    result: Ok(true),
+                                    remote_platform: platform,
+                                    preinstall_check: None,
+                                    has_old_binary: false,
+                                });
+                            })
+                            .await;
+                        return;
+                    }
+
+                    // Run the preinstall check only after the expected binary
+                    // is missing or unusable. The gate applies to installing
+                    // the prebuilt CDN artifact, not to an already-working
+                    // binary that may have been deployed out-of-band.
+                    let preinstall = Self::run_preinstall_check_for_platform(
+                        session_id,
+                        &transport,
+                        platform.as_ref(),
+                    )
+                    .await;
+
                     match preinstall {
                         Some(
                             preinstall @ PreinstallCheckResult {
@@ -1783,7 +1804,12 @@ impl RemoteServerManager {
                         }
                         preinstall => {
                             Self::check_if_binary_is_installed(
-                                &spawner, session_id, transport, platform, preinstall,
+                                &spawner,
+                                session_id,
+                                transport,
+                                platform,
+                                preinstall,
+                                check_result,
                             )
                             .await;
                         }
@@ -1804,10 +1830,10 @@ impl RemoteServerManager {
         transport: T,
         platform: Option<RemotePlatform>,
         preinstall: Option<PreinstallCheckResult>,
+        check_result: Result<bool, Error>,
     ) where
         T: RemoteTransport,
     {
-        let check_result = transport.check_binary().await;
         let old_binary_result = transport.check_has_old_binary().await;
         let has_old_binary = match old_binary_result {
             Ok(has) => has,
@@ -1838,6 +1864,31 @@ impl RemoteServerManager {
                 });
             })
             .await;
+    }
+
+    #[cfg(not(target_family = "wasm"))]
+    async fn run_preinstall_check_for_platform<T>(
+        session_id: SessionId,
+        transport: &T,
+        platform: Option<&RemotePlatform>,
+    ) -> Option<PreinstallCheckResult>
+    where
+        T: RemoteTransport,
+    {
+        match platform {
+            Some(p) if matches!(p.os, RemoteOs::Linux) => {
+                match transport.run_preinstall_check().await {
+                    Ok(r) => Some(r),
+                    Err(e) => {
+                        log::warn!(
+                            "Remote server preinstall check failed: session={session_id:?} error={e}"
+                        );
+                        None
+                    }
+                }
+            }
+            _ => None,
+        }
     }
     #[cfg(not(target_family = "wasm"))]
     async fn emit_unsupported_preinstall_check(
