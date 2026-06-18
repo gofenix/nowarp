@@ -87,6 +87,23 @@ use crate::workspaces::user_workspaces::UserWorkspaces;
 use crate::{
     experiments, workspace, AgentNotificationsModel, GlobalResourceHandlesProvider, ObjectActions,
 };
+#[test]
+fn query_for_rewind_prefill_uses_custom_display_query_inputs() {
+    let context: std::sync::Arc<[crate::ai::agent::AIAgentContext]> = Vec::new().into();
+    let input = crate::ai::agent::AIAgentInput::FetchReviewComments {
+        repo_path: "/repo".to_string(),
+        context,
+    };
+
+    assert_eq!(
+        query_for_rewind_prefill(&[input]),
+        Some(
+            crate::search::slash_command_menu::static_commands::commands::PR_COMMENTS
+                .name
+                .to_string()
+        )
+    );
+}
 
 pub(crate) fn initialize_app(app: &mut App) {
     initialize_settings_for_tests(app);
@@ -437,11 +454,70 @@ fn test_theme_chooser_does_not_suppress_tab_bar_traffic_light_padding() {
             workspace.open_left_panel(ctx);
             assert_eq!(
                 workspace.compute_tab_bar_left_padding(ctx),
-                0.,
-                "Actual left panel should still suppress tab bar left padding"
+                closed_padding,
+                "Open tools panel should still reserve tab bar traffic light padding"
             );
         });
     });
+}
+
+fn assert_vertical_tabs_tools_panel_preserves_padding(config: HeaderToolbarChipSelection) {
+    App::test((), |mut app| async move {
+        initialize_app(&mut app);
+        app.update(|ctx| {
+            TabSettings::handle(ctx).update(ctx, |settings, ctx| {
+                report_if_error!(settings.use_vertical_tabs.set_value(true, ctx));
+                report_if_error!(settings
+                    .header_toolbar_chip_selection
+                    .set_value(config, ctx));
+            });
+        });
+
+        let workspace = mock_workspace(&mut app);
+        workspace.update(&mut app, |workspace, ctx| {
+            let closed_padding = workspace.compute_tab_bar_left_padding(ctx);
+            assert!(
+                closed_padding > 0.,
+                "Vertical tabs should reserve traffic light padding"
+            );
+
+            workspace.open_left_panel(ctx);
+            assert_eq!(
+                workspace.compute_tab_bar_left_padding(ctx),
+                closed_padding,
+                "An open tools panel should still reserve traffic light padding in vertical tabs"
+            );
+        });
+    });
+}
+
+#[test]
+fn test_tools_panel_does_not_suppress_vertical_tab_bar_traffic_light_padding() {
+    let _vertical_tabs_guard = FeatureFlag::VerticalTabs.override_enabled(true);
+    for config in [
+        HeaderToolbarChipSelection::Custom {
+            left: vec![HeaderToolbarItemKind::AgentManagement],
+            right: vec![
+                HeaderToolbarItemKind::TabsPanel,
+                HeaderToolbarItemKind::ToolsPanel,
+                HeaderToolbarItemKind::CodeReview,
+                HeaderToolbarItemKind::NotificationsMailbox,
+            ],
+        },
+        HeaderToolbarChipSelection::Custom {
+            left: vec![
+                HeaderToolbarItemKind::TabsPanel,
+                HeaderToolbarItemKind::ToolsPanel,
+                HeaderToolbarItemKind::AgentManagement,
+            ],
+            right: vec![
+                HeaderToolbarItemKind::CodeReview,
+                HeaderToolbarItemKind::NotificationsMailbox,
+            ],
+        },
+    ] {
+        assert_vertical_tabs_tools_panel_preserves_padding(config);
+    }
 }
 #[cfg(feature = "local_fs")]
 fn open_worktree_sidecar(workspace: &ViewHandle<Workspace>, app: &mut App) {
@@ -2018,7 +2094,7 @@ fn test_tab_context_menu_share_session_items() {
         // When there's a single shared session in a tab (focused), the options
         // for sharing are "Stop sharing" and "Stop sharing all".
         workspace.read(&app, |workspace, ctx| {
-            let items = workspace.tabs[1].menu_items(1, 3, &workspace.tab_groups, ctx);
+            let items = workspace.tabs[1].menu_items(1, 3, &workspace.tab_groups, true, true, ctx);
             assert!(items[0]
                 .is_approximately_same_item_as(&MenuItemFields::new("Stop sharing").into_item()));
             assert!(items[1].is_approximately_same_item_as(
@@ -2039,7 +2115,7 @@ fn test_tab_context_menu_share_session_items() {
         // When there's a single shared session in a tab (unfocused), the options
         // for sharing are "Share session" and "Stop sharing all".
         workspace.read(&app, |workspace, ctx| {
-            let items = workspace.tabs[1].menu_items(1, 3, &workspace.tab_groups, ctx);
+            let items = workspace.tabs[1].menu_items(1, 3, &workspace.tab_groups, true, true, ctx);
             assert!(items[0]
                 .is_approximately_same_item_as(&MenuItemFields::new("Share session").into_item()));
             assert!(items[1].is_approximately_same_item_as(
@@ -2055,7 +2131,7 @@ fn test_tab_context_menu_share_session_items() {
 
         // When there's no shared sessions in a tab, the only option is "Share session".
         workspace.read(&app, |workspace, ctx| {
-            let items = workspace.tabs[1].menu_items(1, 3, &workspace.tab_groups, ctx);
+            let items = workspace.tabs[1].menu_items(1, 3, &workspace.tab_groups, true, true, ctx);
             assert!(items[0]
                 .is_approximately_same_item_as(&MenuItemFields::new("Share session").into_item()));
             assert!(items[1].is_approximately_same_item_as(&MenuItem::Separator));

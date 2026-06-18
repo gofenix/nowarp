@@ -152,6 +152,7 @@ use auth::auth_manager::AuthManager;
 use auth::auth_state::{AuthState, AuthStateProvider};
 use code::editor_management::CodeManager;
 use code::opened_files::OpenedFilesModel;
+use code_review::git_repo_model::GitRepoModels;
 use code_review::GlobalCodeReviewModel;
 use quit_warning::UnsavedStateSummary;
 #[cfg(feature = "local_fs")]
@@ -179,6 +180,8 @@ use watcher::HomeDirectoryWatcher;
 use crate::ai::active_agent_views_model::ActiveAgentViewsModel;
 #[cfg(not(target_family = "wasm"))]
 use crate::ai::aws_credentials::AwsCredentialRefresher as _;
+#[cfg(not(target_family = "wasm"))]
+use crate::ai::geap_credentials::GeapCredentialRefresher as _;
 use crate::ai::mcp::{FileBasedMCPManager, FileMCPWatcher};
 use crate::uri::web_intent_parser::maybe_rewrite_web_url_to_intent;
 pub mod workflows;
@@ -922,7 +925,12 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
     // the TOML-backed store. When disabled, they live in the platform-native
     // store (same backend as private). Use the correct one for pre-app reads.
     #[cfg_attr(
-        not(any(enable_crash_recovery, any(target_os = "linux", target_os = "freebsd"))),
+        not(any(
+            enable_crash_recovery,
+            target_os = "linux",
+            target_os = "freebsd",
+            target_os = "macos"
+        )),
         expect(unused)
     )]
     let prefs_for_public_settings: &dyn warpui_extras::user_preferences::UserPreferences =
@@ -974,6 +982,11 @@ fn run_internal(mut launch_mode: LaunchMode) -> Result<()> {
         let dev_icon = ASSETS.get("bundled/png/local.png")?;
         app_builder.set_dev_icon(dev_icon);
 
+        let show_dock_icon = crate::settings::app_icon::ShowDockIconState::read_from_preferences(
+            prefs_for_public_settings,
+        )
+        .unwrap_or_else(crate::settings::app_icon::ShowDockIconState::default_value);
+        app_builder.set_show_dock_icon_on_launch(show_dock_icon);
         app_builder.set_menu_bar_builder(app_menus::menu_bar);
         app_builder.set_dock_menu_builder(|_| app_menus::dock_menu());
     }
@@ -1365,6 +1378,12 @@ pub(crate) fn initialize_app(
         let mut manager = ::ai::api_keys::ApiKeyManager::new(ctx);
         #[cfg(not(target_family = "wasm"))]
         manager.subscribe_to_settings_changes(ctx);
+        // Gemini Enterprise (GEAP) credential refresh triggers: workspace
+        // settings saves / team changes and the member's enablement toggle.
+        #[cfg(not(target_family = "wasm"))]
+        if FeatureFlag::GeminiEnterprise.is_enabled() {
+            manager.subscribe_to_geap_settings_changes(ctx);
+        }
         // The Grok subscription refresher (`ai::grok_subscription`) has no
         // visibility into workspace policy, so wire the BYO API key policy in
         // here. The initial value resumes proactive refresh of any tokens
@@ -1637,11 +1656,7 @@ pub(crate) fn initialize_app(
         });
     }
 
-    #[cfg(feature = "local_fs")]
-    {
-        use code_review::git_repo_model::GitRepoModels;
-        ctx.add_singleton_model(|_| GitRepoModels::new());
-    }
+    ctx.add_singleton_model(|_| GitRepoModels::new());
 
     ctx.add_singleton_model(|ctx| {
         ProjectManagementModel::new(persisted_projects, persistence_writer.sender(), ctx)
