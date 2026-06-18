@@ -20556,12 +20556,16 @@ impl Workspace {
     fn compute_tab_bar_left_padding(&self, ctx: &AppContext) -> f32 {
         let zoom_factor = WindowSettings::as_ref(ctx).zoom_level.as_zoom_factor();
         let traffic_light_data = traffic_light_data(ctx, self.window_id);
+        let vertical_tabs_active =
+            FeatureFlag::VerticalTabs.is_enabled() && *TabSettings::as_ref(ctx).use_vertical_tabs;
         let is_window_fullscreen = ctx
             .windows()
             .platform_window(self.window_id)
             .map(|window| window.fullscreen_state() == FullscreenState::Fullscreen)
             .unwrap_or(false);
-        if is_window_fullscreen && cfg!(target_os = "macos") {
+        if self.is_left_panel_open(ctx) && !vertical_tabs_active {
+            0.
+        } else if is_window_fullscreen && cfg!(target_os = "macos") {
             // Full-screen mode on MacOS does not need as much padding (traffic lights are hidden).
             TAB_BAR_PADDING_LEFT
         } else {

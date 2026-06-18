@@ -433,8 +433,14 @@ fn test_tab_bar_traffic_light_space_regression_for_resource_center_overlap() {
 
 #[test]
 fn test_theme_chooser_does_not_suppress_tab_bar_traffic_light_padding() {
+    let _vertical_tabs_guard = FeatureFlag::VerticalTabs.override_enabled(true);
     App::test((), |mut app| async move {
         initialize_app(&mut app);
+        app.update(|ctx| {
+            TabSettings::handle(ctx).update(ctx, |settings, ctx| {
+                report_if_error!(settings.use_vertical_tabs.set_value(false, ctx));
+            });
+        });
 
         let workspace = mock_workspace(&mut app);
         workspace.update(&mut app, |workspace, ctx| {
@@ -454,8 +460,8 @@ fn test_theme_chooser_does_not_suppress_tab_bar_traffic_light_padding() {
             workspace.open_left_panel(ctx);
             assert_eq!(
                 workspace.compute_tab_bar_left_padding(ctx),
-                closed_padding,
-                "Open tools panel should still reserve tab bar traffic light padding"
+                0.,
+                "Actual left panel should still suppress tab bar left padding"
             );
         });
     });

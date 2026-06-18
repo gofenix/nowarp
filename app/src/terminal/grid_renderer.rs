@@ -155,11 +155,13 @@ struct NativeGlyph {
 }
 
 /// Describes a specific type of glyph that we are able to render natively.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 enum NativeGlyphType {
     UpperHalfBlock,
     PowerlineLeftHardDivider,
     PowerlineRightHardDivider,
+    BoxDrawingHorizontal,
+    BoxDrawingVertical,
     BottomAlignedFractionalBlock {
         eighths: u8,
     },
@@ -1945,6 +1947,11 @@ fn native_glyph_for_cell(cell: &Cell) -> Option<NativeGlyphType> {
         // These are all Nerd Font (NF) glyphs.
         '\u{e0b5}' => NativeGlyphType::NFHalfCircleRightThin,
         '\u{e0b7}' => NativeGlyphType::NFHalfCircleLeftThin,
+        // Light box-drawing lines (U+2500, U+2502). Draw these natively so
+        // TUI borders stay crisp across fonts that have overly heavy or
+        // misaligned box-drawing glyphs.
+        '─' => NativeGlyphType::BoxDrawingHorizontal,
+        '│' => NativeGlyphType::BoxDrawingVertical,
         '\u{e0b0}' => NativeGlyphType::PowerlineLeftHardDivider,
         '\u{e0b2}' => NativeGlyphType::PowerlineRightHardDivider,
         '\u{e0b6}' => NativeGlyphType::NFHalfCircleLeftThick,
@@ -2214,6 +2221,28 @@ fn render_native_glyph(native_glyph: NativeGlyph, ctx: &mut PaintContext, app: &
                 .with_background(Fill::Solid(foreground_color));
             None
         }
+        NativeGlyphType::BoxDrawingHorizontal => {
+            let stroke_width = box_drawing_stroke_width(cell_bounds);
+            let rect = RectF::new(
+                cell_bounds.origin() + vec2f(0.0, (cell_bounds.height() - stroke_width) / 2.0),
+                vec2f(cell_bounds.width(), stroke_width),
+            );
+            ctx.scene
+                .draw_rect_without_hit_recording(rect)
+                .with_background(Fill::Solid(foreground_color));
+            None
+        }
+        NativeGlyphType::BoxDrawingVertical => {
+            let stroke_width = box_drawing_stroke_width(cell_bounds);
+            let rect = RectF::new(
+                cell_bounds.origin() + vec2f((cell_bounds.width() - stroke_width) / 2.0, 0.0),
+                vec2f(stroke_width, cell_bounds.height()),
+            );
+            ctx.scene
+                .draw_rect_without_hit_recording(rect)
+                .with_background(Fill::Solid(foreground_color));
+            None
+        }
 
         NativeGlyphType::NFHalfCircleLeftThick | NativeGlyphType::NFHalfCircleLeft => {
             Some("bundled/svg/stretchable_glyphs/left-half-circle.svg")
@@ -2256,6 +2285,10 @@ fn render_native_glyph(native_glyph: NativeGlyph, ctx: &mut PaintContext, app: &
             app,
         );
     }
+}
+
+fn box_drawing_stroke_width(cell_bounds: RectF) -> f32 {
+    (cell_bounds.height() / 16.0).round().max(1.0)
 }
 
 /// Calculate the Rect arguments for the underlines and strikethroughs, but don't actually draw

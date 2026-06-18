@@ -267,6 +267,7 @@ fn build_host_shell_command(
     builder.env("TERM_PROGRAM", "WarpTerminal");
     // Advertise 24-bit color support.
     builder.env("COLORTERM", "truecolor");
+    remove_inherited_color_suppression_env(&mut builder);
 
     // Prevent child processes from inheriting startup notification env.
     // See: https://specifications.freedesktop.org/startup-notification-spec/startup-notification-latest.txt
@@ -797,6 +798,7 @@ fn build_docker_sandbox_command(
     builder.env("TERM", "xterm-256color");
     builder.env("TERM_PROGRAM", "WarpTerminal");
     builder.env("COLORTERM", "truecolor");
+    remove_inherited_color_suppression_env(&mut builder);
     builder.env_remove("DESKTOP_STARTUP_ID");
     if let Some(version) = ChannelState::app_version() {
         builder.env("TERM_PROGRAM_VERSION", version);
@@ -854,6 +856,10 @@ fn build_docker_sandbox_command(
     builder.current_dir(home_dir);
 
     builder
+}
+
+fn remove_inherited_color_suppression_env(builder: &mut Command) {
+    builder.env_remove("NO_COLOR");
 }
 
 /// Prepare the Docker sandbox before spawning the PTY:

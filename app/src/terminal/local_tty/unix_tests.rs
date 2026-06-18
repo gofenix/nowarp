@@ -64,6 +64,42 @@ fn host_non_bash_command_does_not_set_history_size_sentinels() {
 }
 
 #[test]
+fn host_shell_command_removes_inherited_no_color_env() {
+    let command = build_host_shell_command(
+        shell_starter(ShellType::Zsh, "/bin/zsh"),
+        None,
+        HashMap::new(),
+        None,
+        false,
+        false,
+        false,
+        false,
+        true,
+    );
+
+    assert_eq!(env_value(&command, "NO_COLOR"), Some(None));
+}
+
+#[test]
+fn host_shell_command_preserves_explicit_no_color_override() {
+    let mut env_vars = HashMap::new();
+    env_vars.insert(OsString::from("NO_COLOR"), OsString::from("1"));
+    let command = build_host_shell_command(
+        shell_starter(ShellType::Zsh, "/bin/zsh"),
+        None,
+        env_vars,
+        None,
+        false,
+        false,
+        false,
+        false,
+        true,
+    );
+
+    assert_eq!(env_value(&command, "NO_COLOR"), Some(Some("1".to_owned())));
+}
+
+#[test]
 fn docker_sandbox_command_sets_history_size_sentinels() {
     let docker_starter =
         DockerSandboxShellStarter::new(shell_starter(ShellType::Bash, "sbx"), None);
@@ -94,4 +130,22 @@ fn docker_sandbox_command_sets_history_size_sentinels() {
         env_value(&command, "WARP_INITIAL_HISTSIZE"),
         Some(Some(BASH_HISTORY_SIZE_SENTINEL.to_owned()))
     );
+}
+
+#[test]
+fn docker_sandbox_command_removes_inherited_no_color_env() {
+    let docker_starter =
+        DockerSandboxShellStarter::new(shell_starter(ShellType::Bash, "sbx"), None);
+    let command = build_docker_sandbox_command(
+        &docker_starter,
+        None,
+        HashMap::new(),
+        false,
+        false,
+        false,
+        false,
+        true,
+    );
+
+    assert_eq!(env_value(&command, "NO_COLOR"), Some(None));
 }

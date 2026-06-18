@@ -3,14 +3,32 @@ use pathfinder_geometry::vector::{vec2f, Vector2F};
 use warpui::fonts::Cache as FontCache;
 use warpui::units::{IntoLines, Lines, Pixels};
 
-use super::{active_or_next_match, CachedBackgroundColor};
+use super::{active_or_next_match, native_glyph_for_cell, CachedBackgroundColor, NativeGlyphType};
 use crate::terminal::grid_size_util::calculate_grid_baseline_position;
+use crate::terminal::model::cell::Cell;
 use crate::terminal::model::index::Point;
 use crate::terminal::model::selection::SelectionPoint;
 use crate::terminal::{grid_renderer, SizeInfo};
 
 fn rect_from_points(min_x: f32, min_y: f32, max_x: f32, max_y: f32) -> RectF {
     RectF::from_points(vec2f(min_x, min_y), vec2f(max_x, max_y))
+}
+
+#[test]
+fn test_light_box_drawing_lines_render_natively() {
+    let mut cell = Cell::default();
+
+    cell.c = '─';
+    assert_eq!(
+        native_glyph_for_cell(&cell),
+        Some(NativeGlyphType::BoxDrawingHorizontal)
+    );
+
+    cell.c = '│';
+    assert_eq!(
+        native_glyph_for_cell(&cell),
+        Some(NativeGlyphType::BoxDrawingVertical)
+    );
 }
 
 // TODO(CORE-2002): Make test non-Mac specific by switching to using bundled Roboto font.
