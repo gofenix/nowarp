@@ -275,6 +275,25 @@ fn removal_command_removes_binary_but_leaves_global_resources() {
 }
 
 #[test]
+fn daemon_removal_command_removes_current_socket_and_pid() {
+    let identity_key = "user@example.com/ssh host";
+    let dir = remote_server_daemon_dir(identity_key);
+    let command = remote_server_daemon_removal_command(identity_key);
+
+    assert_eq!(
+        command,
+        format!(
+            "rm -f {}/{} {}/{}",
+            dir,
+            daemon_socket_name(),
+            dir,
+            daemon_pid_name()
+        )
+    );
+    assert!(command.contains(&remote_server_identity_dir_name(identity_key)));
+}
+
+#[test]
 fn install_script_substitutes_bundled_resources_dir_name() {
     let script = install_script(None);
     assert!(!script.contains("{bundled_resources_dir_name}"));

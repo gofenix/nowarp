@@ -281,13 +281,17 @@ impl RemoteTransport for SshTransport {
         })
     }
 
-    fn remove_remote_server_binary(
+    fn cleanup_stale_remote_server(
         &self,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
         let socket_path = self.socket_path.clone();
+        let identity_key = self.auth_context.remote_server_identity_key();
         Box::pin(async move {
-            let cmd = remote_server::setup::remote_server_removal_command();
-            log::info!("Removing stale remote server binary: {cmd}");
+            let binary_removal = remote_server::setup::remote_server_removal_command();
+            let daemon_removal =
+                remote_server::setup::remote_server_daemon_removal_command(&identity_key);
+            let cmd = format!("{binary_removal}; {daemon_removal}");
+            log::info!("Cleaning up stale remote server install: {cmd}");
             let output = remote_server::ssh::run_ssh_command(
                 &socket_path,
                 &cmd,
@@ -298,7 +302,9 @@ impl RemoteTransport for SshTransport {
                 Ok(())
             } else {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                Err(anyhow::anyhow!("Failed to remove binary: {stderr}"))
+                Err(anyhow::anyhow!(
+                    "Failed to clean up stale remote server: {stderr}"
+                ))
             }
         })
     }

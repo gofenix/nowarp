@@ -2347,9 +2347,10 @@ impl RemoteServerManager {
             .map_err(|e| ConnectAndHandshakeError::Initialize(anyhow::anyhow!("{e:#}")))?;
 
         // Version compatibility check. If the server reports a different
-        // release tag than the client expects, the binary on disk is stale.
-        // Remove it so the next reconnect (or explicit reconnect by the
-        // user) will reinstall.
+        // release tag than the client expects, the binary on disk or the
+        // daemon behind the current socket is stale. Clean both up so the
+        // next reconnect (or explicit reconnect by the user) will reinstall
+        // and start a fresh daemon.
         //
         // For versioned channels (Stable, Preview, Dev, Integration) the
         // version is also encoded in the binary path and verified by the
@@ -2359,7 +2360,7 @@ impl RemoteServerManager {
         let client_version = ChannelState::app_version();
         if !version_is_compatible(client_version, &resp.server_version) {
             log::warn!(
-                "Remote server version mismatch, removing stale binary: session={session_id:?} \
+                "Remote server version mismatch, cleaning stale install: session={session_id:?} \
                  client={client_version:?} server={:?}",
                 resp.server_version
             );
@@ -2367,7 +2368,7 @@ impl RemoteServerManager {
             const REMOVAL_TIMEOUT: Duration = Duration::from_secs(5);
 
             if let Err(e) = transport
-                .remove_remote_server_binary()
+                .cleanup_stale_remote_server()
                 .with_timeout(REMOVAL_TIMEOUT)
                 .await
                 .unwrap_or_else(|_| Err(anyhow::anyhow!("timed out after {REMOVAL_TIMEOUT:?}")))

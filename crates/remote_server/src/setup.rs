@@ -515,6 +515,23 @@ pub fn remote_server_removal_command() -> String {
     format!("rm -f {}", remote_server_binary())
 }
 
+/// Returns the shell command to remove the current remote-server daemon
+/// socket and PID file for this identity.
+///
+/// Existing Unix-socket connections continue after the socket path is
+/// unlinked, so this prevents new proxies from reusing an incompatible
+/// daemon without disrupting sessions that are already connected to it.
+pub fn remote_server_daemon_removal_command(identity_key: &str) -> String {
+    let dir = remote_server_daemon_dir(identity_key);
+    format!(
+        "rm -f {}/{} {}/{}",
+        dir,
+        daemon_socket_name(),
+        dir,
+        daemon_pid_name()
+    )
+}
+
 /// Returns the version string used to pin remote-server installs on
 /// channels that take the versioned path (i.e. everything except
 /// [`Channel::Local`] and [`Channel::Oss`]). Prefers the baked-in

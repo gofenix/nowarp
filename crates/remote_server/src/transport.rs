@@ -284,17 +284,19 @@ pub trait RemoteTransport: Send + Sync + std::fmt::Debug {
         executor: std::sync::Arc<executor::Background>,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<Connection>> + Send>>;
 
-    /// Remove the remote server binary, forcing a reinstall on the next
-    /// [`install_binary`] call.
+    /// Remove the remote server binary and current daemon socket/PID files,
+    /// forcing a reinstall and fresh daemon on the next [`install_binary`]
+    /// and connect calls.
     ///
     /// Called by the manager after the initialize handshake reports a
-    /// version that disagrees with the client's: the file at the expected
-    /// path is stale/wrong, so we remove it so the next setup sees a miss
-    /// and reinstalls from the CDN instead of looping on the same bad
-    /// binary.
+    /// version that disagrees with the client's. The binary at the expected
+    /// path may be stale/wrong, and the daemon socket may still point at an
+    /// already-running incompatible daemon. Cleaning both keeps the next
+    /// setup from reinstalling the proxy only to reconnect to the same stale
+    /// daemon.
     ///
     /// [`install_binary`]: RemoteTransport::install_binary
-    fn remove_remote_server_binary(
+    fn cleanup_stale_remote_server(
         &self,
     ) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 
