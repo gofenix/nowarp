@@ -1076,7 +1076,7 @@ fn test_viewport_resize_emits_layout_invalidation() {
 
         let editor2 = editor.clone();
         let _observer = app.add_model::<Observer, _>(move |ctx| {
-            ctx.subscribe_to_model(&editor2, move |_, event, _| {
+            ctx.subscribe_to_model(&editor2, move |_, _, event, _| {
                 if matches!(event, CodeEditorModelEvent::LayoutInvalidated) {
                     block_on(events_tx.send(())).unwrap();
                 }
